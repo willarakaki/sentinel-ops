@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: sentinel_ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    # As 4 linhas abaixo ativam o uso da sua RTX 3070 dentro do Docker.
+    # Requisito: Você precisa ter o NVIDIA Container Toolkit instalado na máquina host.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  ollama_data:
+    name: sentinel_ollama_data

@@ -1,0 +1,36 @@
+# Matriz de Decisão de Disputas SentinelOps
+version: "1.0"
+last_updated: "2026-08-29"
+
+tiers:
+  micro:
+    min_value: 0.0
+    max_value: 49.99
+    risk_level: "baixo"
+    action: "auto_refund"
+    human_in_the_loop_required: false
+    description: "Auto-Refund Imediato: Custo do analista maior que a disputa."
+
+  medium:
+    min_value: 50.0
+    max_value: 249.99
+    risk_level: "moderado"
+    action: "conditional_arbitration"
+    human_in_the_loop_required: false # Apenas se houver divergência
+    description: "Arbitragem Condicional baseada em telemetria e histórico."
+
+  high:
+    min_value: 250.0
+    max_value: 999.99
+    risk_level: "elevado"
+    action: "investigative_dossier"
+    human_in_the_loop_required: true
+    description: "Dossiê Investigativo com componente A2UI e recomendação."
+
+  critical:
+    min_value: 1000.0
+    max_value: 999999.0 # Virtualmente infinito
+    risk_level: "critico"
+    action: "preventive_block"
+    human_in_the_loop_required: true
+    description: "Bloqueio Cautelar e acionamento de fila de antifraude Sênior."
