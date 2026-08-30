@@ -28,7 +28,11 @@ class DisputeMatrixConfig(BaseModel):
 # ==========================================
 class Settings(BaseSettings):
     
+<<<<<<< HEAD
     google_api_key: str = Field(..., alias="GOOGLE_APÌ_KEY")
+=======
+    google_api_key: str = Field(..., alias="GOOGLE_API_KEY")
+>>>>>>> 1fd106d (feat(config): implement type-safe settings management with pydantic and yaml loader)
     ollama_base_url: str = Field(default="http://localhost:11434", alias="OLLAMA_BASE_URL")
     
     # LangSmith (Observabilidade)
@@ -47,6 +51,10 @@ class Settings(BaseSettings):
             yaml_data = yaml.safe_load(f)
             
         return DisputeMatrixConfig(**yaml_data)
+<<<<<<< HEAD
     
+=======
+
+>>>>>>> 1fd106d (feat(config): implement type-safe settings management with pydantic and yaml loader)
 settings = Settings()
 dispute_rules = settings.load_dispute_matrix()
