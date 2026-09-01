@@ -47,6 +47,18 @@ def run_graph_tests():
     }
     format_stream_output(sentinel_app.stream(input_2))
     
+    # ==========================================
+    # CASO 3: CAMINHO HÍBRIDO (Triage Local -> Investigador Cloud)
+    # ==========================================
+    print("--- [TESTE 3: Ticket Moderado (R$ 80,00) - Necessita Arbitragem] ---")
+    input_3 = {
+        "messages": [HumanMessage(content="Comprei dois combos, mas um deles veio sem a batata grande e o molho extra. Gostaria de receber o reembolso parcial dos itens que faltaram.")],
+        "ticket_id": "TKT-1003",
+        "customer_id": "CUST-HBR",
+        "dispute_amount": 80.00
+    }
+    format_stream_output(sentinel_app.stream(input_3))
+    
     print("=== TESTES DE INTEGRAÇÃO CONCLUÍDOS ===")
 
 if __name__ == "__main__":
