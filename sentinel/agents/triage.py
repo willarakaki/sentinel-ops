@@ -29,22 +29,27 @@ def triage_node(state: DisputeState) -> dict:
     # 2. Instancia o motor local configurado para JSON
     slm = LLMFactory.get_local_slm(temperature=0.0)
     
-    # Extrai o schema como dict e converte para string formatada
-    schema_string = json.dumps(TriageOutput.model_json_schema(), indent=2)
-    
     # 3. Engenharia de Prompt focada em SLM (Direta e com Schema explícito)
-    system_prompt = f"""Você é um analista de triagem de primeira linha.
-        Sua única função é ler a queixa do cliente e retornar EXATAMENTE um objeto JSON válido.
-        Não inclua nenhum texto adicional antes ou depois do JSON.
+    system_prompt = """Você é um analista de triagem de dados estruturados.
+        Sua única função é classificar a queixa do cliente e retornar EXATAMENTE UM JSON.
+        NÃO escreva nenhuma palavra antes ou depois do JSON.
 
-        Esquema JSON obrigatório:
-        {schema_string}
+        FORMATO DE SAÍDA ESPERADO:
+        {"intent": "sua_classificacao", "risk_level": "baixo|moderado|elevado|critico"}
 
-        Regras de Risco:
+        REGRAS DE RISCO:
         - 'baixo': Dúvidas simples, atrasos pequenos.
         - 'moderado': Item faltante de baixo valor.
-        - 'elevado': Valores altos, xingamentos, ameaças de processo.
-        - 'critico': Suspeita clara de fraude ou invasão de conta.
+        - 'elevado': Valores altos, xingamentos, ameaças de processo ou agressividade.
+        - 'critico': Suspeita de fraude, invasão de conta ou risco de vida.
+
+        EXEMPLO 1:
+        Queixa: "Meu pedido atrasou 10 minutos, mas chegou."
+        Saída: {"intent": "atraso", "risk_level": "baixo"}
+
+        EXEMPLO 2:
+        Queixa: "Vou processar vocês, o entregador foi agressivo e a comida veio revirada! Devolvam meu dinheiro!"
+        Saída: {"intent": "item_danificado", "risk_level": "elevado"}
         """
 
     messages = [
@@ -74,6 +79,7 @@ def triage_node(state: DisputeState) -> dict:
     except Exception as e:
         # Padrão Sênior de Resiliência: Fail-Safe para bloqueio humano
         print(f"[ERRO NA TRIAGEM SLM] {e}. Aplicando Fallback de Segurança (Risco Elevado).")
+        print(f"[DEBUG LOG] Resposta bruta do modelo que causou o erro: {response.content}")
         return {
             "intent": "classificacao_falhou",
             "risk_level": "elevado"
