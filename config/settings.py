@@ -2,11 +2,13 @@ import yaml
 from pathlib import Path
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from dotenv import load_dotenv
 
 # 1. Definimos o caminho absoluto do projeto para não haver erro de "arquivo não encontrado"
 BASE_DIR = Path(__file__).resolve().parent.parent
 YAML_PATH = BASE_DIR / "rules" / "dispute_matrix.yaml"
 
+load_dotenv()
 
 # ==========================================
 # MODELOS DE VALIDAÇÃO DO YAML (REGRAS DE NEGÓCIO)
