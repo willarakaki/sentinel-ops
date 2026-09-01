@@ -1,4 +1,5 @@
 import os
+import sqlite3
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.sqlite import SqliteSaver
 
@@ -82,8 +83,13 @@ def build_graph():
     workflow.add_edge("investigator", END)
     workflow.add_edge("human_review", END)
     
-    memory = SqliteSaver.from_conn_string("data/checkpoints.sqlite")
+    conn = sqlite3.connect("data/checkpoints.sqlite", check_same_thread=False)
     
-    return workflow.compile(checkpointer=memory)
+    memory = SqliteSaver(conn)
+    
+    return workflow.compile(
+        checkpointer=memory,
+        interrupt_before=["human_review"]
+        )
 
 sentinel_app = build_graph()
