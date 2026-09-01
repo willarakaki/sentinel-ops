@@ -1,10 +1,14 @@
+import os
 from langgraph.graph import StateGraph, START, END
+from langgraph.checkpoint.sqlite import SqliteSaver
 
 # Importações do nosso ecossistema
 from sentinel.schemas.state import DisputeState
 from sentinel.agents.triage import triage_node
 from sentinel.agents.investigator import investigator_node
 from config.settings import dispute_rules
+
+os.makedirs("data", exist_ok=True)
 
 # ==========================================
 # 1. NÓS SIMULADOS
@@ -78,6 +82,8 @@ def build_graph():
     workflow.add_edge("investigator", END)
     workflow.add_edge("human_review", END)
     
-    return workflow.compile()
+    memory = SqliteSaver.from_conn_string("data/checkpoints.sqlite")
+    
+    return workflow.compile(checkpointer=memory)
 
 sentinel_app = build_graph()

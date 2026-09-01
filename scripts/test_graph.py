@@ -32,8 +32,10 @@ def run_graph_tests():
         "customer_id": "CUST-ABC",
         "dispute_amount": 15.00
     }
+    
+    config = {"configurable": {"thread_id": "ticket-1001"}}
     # Executa o streaming passo a passo
-    format_stream_output(sentinel_app.stream(input_1))
+    format_stream_output(sentinel_app.stream(input_1, config=config))
     
     # ==========================================
     # CASO 2: CAMINHO DEFENSIVO (Human Review / Falha)
@@ -45,7 +47,10 @@ def run_graph_tests():
         "customer_id": "CUST-XYZ",
         "dispute_amount": 500.00
     }
-    format_stream_output(sentinel_app.stream(input_2))
+    
+    config = {"configurable": {"thread_id": "ticket-1002"}}
+    
+    format_stream_output(sentinel_app.stream(input_2, config=config))
     
     # ==========================================
     # CASO 3: CAMINHO HÍBRIDO (Triage Local -> Investigador Cloud)
@@ -57,7 +62,10 @@ def run_graph_tests():
         "customer_id": "CUST-HBR",
         "dispute_amount": 80.00
     }
-    format_stream_output(sentinel_app.stream(input_3))
+    
+    config = {"configurable": {"thread_id": "ticket-1003"}}
+    
+    format_stream_output(sentinel_app.stream(input_3, config=config))
     
     print("=== TESTES DE INTEGRAÇÃO CONCLUÍDOS ===")
 
