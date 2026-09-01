@@ -3,6 +3,7 @@ from langgraph.graph import StateGraph, START, END
 # Importações do nosso ecossistema
 from sentinel.schemas.state import DisputeState
 from sentinel.agents.triage import triage_node
+from sentinel.agents.investigator import investigator_node
 from config.settings import dispute_rules
 
 # ==========================================
@@ -11,10 +12,6 @@ from config.settings import dispute_rules
 def auto_refund_node(state: DisputeState) -> dict:
     print("--- [NÓ: AUTO REFUND (Aprovação Imediata)] ---")
     return {"recommended_action": "auto_refund", "human_in_the_loop_required": False}
-
-def investigator_node(state: DisputeState) -> dict:
-    print("--- [NÓ: INVESTIGADOR (Nuvem/Gemini em breve)] ---")
-    return {"recommended_action": "dossie_gerado", "human_in_the_loop_required": True}
 
 def human_review_node(state: DisputeState) -> dict:
     print("--- [NÓ: REVISÃO MANUAL (Analista Sênior)] ---")
@@ -52,14 +49,14 @@ def route_after_triage(state: DisputeState) -> str:
 # 3. ORQUESTRADOR LANGGRAPH
 # ==========================================
 def build_graph():
-    print("⚙️ Construindo Orquestrador LangGraph com Roteamento Dinâmico...")
+    print("⚙️ Construindo Orquestrador LangGraph Híbrido (Local + Cloud)...")
     workflow = StateGraph(DisputeState)
     
     # Registra todos os nós
-    workflow.add_node("triage", triage_node)
-    workflow.add_node("auto_refund", auto_refund_node)
-    workflow.add_node("investigator", investigator_node)
-    workflow.add_node("human_review", human_review_node)
+    workflow.add_node("triage", triage_node)         # SLM Local (Ollama)
+    workflow.add_node("investigator", investigator_node) # Cloud LLM (Gemini)
+    workflow.add_node("auto_refund", auto_refund_node)   # Código determinístico (Python)
+    workflow.add_node("human_review", human_review_node) # Código determinístico (Python)
     
     # Desenha o fluxo
     workflow.add_edge(START, "triage")
