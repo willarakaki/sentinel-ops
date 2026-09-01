@@ -29,7 +29,7 @@ def triage_node(state: DisputeState) -> dict:
     # 2. Instancia o motor local configurado para JSON
     slm = LLMFactory.get_local_slm(temperature=0.0)
     
-    # 3. Engenharia de Prompt focada em SLM (Direta e com Schema explícito)
+    # 3. Engenharia de Prompt focada em SLM (few_shot prompt)
     system_prompt = """Você é um analista de triagem de dados estruturados.
         Sua única função é classificar a queixa do cliente e retornar EXATAMENTE UM JSON.
         NÃO escreva nenhuma palavra antes ou depois do JSON.
