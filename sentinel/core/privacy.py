@@ -1,13 +1,27 @@
 from presidio_analyzer import AnalyzerEngine, PatternRecognizer, Pattern
+from presidio_analyzer.nlp_engine import NlpEngineProvider
 from presidio_anonymizer import AnonymizerEngine
 
 print("  🔒 [Privacy] Inicializando Microsoft Presidio (NLP Local)...")
 
-# 1. Configura o analisador para usar o modelo em português do spaCy
-analyzer = AnalyzerEngine(supported_languages=["pt"])
+# Configura o analisador para usar o modelo em português do spaCy
+nlp_configuration = {
+    "nlp_engine_name": "spacy",
+    "models": [{"lang_code": "pt", "model_name": "pt_core_news_sm"}],
+}
+
+# Injeta a configuração e cria o motor
+provider = NlpEngineProvider(nlp_configuration=nlp_configuration)
+nlp_engine_pt = provider.create_engine()
+
+# Passa o motor customizado para o Analisador
+analyzer = AnalyzerEngine(
+    nlp_engine=nlp_engine_pt, 
+    supported_languages=["pt"]
+)
 anonymizer = AnonymizerEngine()
 
-# 2. Ensina o Presidio a identificar o CPF brasileiro via Regex
+# Ensina o Presidio a identificar o CPF brasileiro via Regex
 cpf_pattern = Pattern(
     name="cpf_pattern", 
     regex=r"\b\d{3}\.\d{3}\.\d{3}-\d{2}\b|\b\d{11}\b", 
@@ -20,7 +34,7 @@ cpf_recognizer = PatternRecognizer(
 )
 analyzer.registry.add_recognizer(cpf_recognizer)
 
-# 3. Função de Mascaramento Central
+# Função de Mascaramento Central
 def mask_pii(text: str) -> str:
     """
     Escaneia o texto localmente buscando dados sensíveis e os substitui por tags.

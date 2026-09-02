@@ -63,16 +63,19 @@ def run_graph_tests():
     format_stream_output(sentinel_app.stream(input_2, config=config_2))
 
     # ==========================================
-    # CASO 3: CAMINHO HÍBRIDO (ReAct Loop + DuckDB)
+    # CASO 3: CAMINHO HÍBRIDO (ReAct Loop + DuckDB + Privacidade LGPD)
     # ==========================================
-    print("\n--- [TESTE 3: Ticket Moderado (R$ 80,00) - Necessita Arbitragem com Dados] ---")
+    print("\n--- [TESTE 3: Ticket Moderado (R$ 80,00) - Teste de Mascaramento PII/LGPD] ---")
     config_3 = {"configurable": {"thread_id": "TKT-1003"}}
+    
+    # INJEÇÃO DE DADOS SENSÍVEIS (NOME E CPF)
     input_3 = {
-        "messages": [HumanMessage(content="Comprei dois combos, mas um deles veio sem a batata grande e o molho extra. Gostaria de receber o reembolso parcial.")],
+        "messages": [HumanMessage(content="Meu nome é João da Silva, portador do CPF 123.456.789-00. Comprei dois combos, mas um deles veio sem a batata grande e o molho extra. Gostaria de receber o reembolso parcial.")],
         "ticket_id": "TKT-1003",
         "customer_id": "CUST-HBR",
         "dispute_amount": 80.00
     }
+    
     format_stream_output(sentinel_app.stream(input_3, config=config_3))
     
     # ==========================================
