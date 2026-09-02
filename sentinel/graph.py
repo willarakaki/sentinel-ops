@@ -2,12 +2,14 @@ import os
 import sqlite3
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.sqlite import SqliteSaver
+from langgraph.prebuilt import ToolNode
 
 # Importações do nosso ecossistema
 from sentinel.schemas.state import DisputeState
 from sentinel.agents.triage import triage_node
 from sentinel.agents.investigator import investigator_node
 from config.settings import dispute_rules
+from sentinel.tools.database import get_delivery_telemetry, get_customer_history
 
 os.makedirs("data", exist_ok=True)
 
@@ -50,6 +52,15 @@ def route_after_triage(state: DisputeState) -> str:
     print(">> Roteando para: INVESTIGADOR (Análise Complexa de Telemetria)")
     return "investigator"
 
+def route_investigator(state: DisputeState) -> str:
+    """
+    Se o Gemini pedir dados do DuckDB, roteia para o 'tools'.
+    Se ele já chamou o InvestigatorOutput e atualizou a ação, roteia para o 'END'.
+    """
+    if state.get("recommended_action"):
+        return END
+    return "tools"
+
 # ==========================================
 # 3. ORQUESTRADOR LANGGRAPH
 # ==========================================
@@ -58,15 +69,17 @@ def build_graph():
     workflow = StateGraph(DisputeState)
     
     # Registra todos os nós
-    workflow.add_node("triage", triage_node)         # SLM Local (Ollama)
-    workflow.add_node("investigator", investigator_node) # Cloud LLM (Gemini)
-    workflow.add_node("auto_refund", auto_refund_node)   # Código determinístico (Python)
-    workflow.add_node("human_review", human_review_node) # Código determinístico (Python)
+    workflow.add_node("triage", triage_node)
+    workflow.add_node("investigator", investigator_node)
+    workflow.add_node("auto_refund", auto_refund_node)
+    workflow.add_node("human_review", human_review_node)
+    
+    db_tools = [get_delivery_telemetry, get_customer_history]
+    workflow.add_node("tools", ToolNode(db_tools))
     
     # Desenha o fluxo
     workflow.add_edge(START, "triage")
     
-    # A Mágica: Aresta Condicional
     workflow.add_conditional_edges(
         "triage",               # Nó de origem
         route_after_triage,     # Função que decide o destino
@@ -78,9 +91,18 @@ def build_graph():
         }
     )
     
-    # Finaliza o fluxo dos nós de saída para o END
+    workflow.add_conditional_edges(
+        "investigator",
+        route_investigator,
+        {
+            "tools": "tools",
+            END: END
+        }
+    )
+    # Devolve o texto do db para o Gemini
+    workflow.add_edge("tools", "investigator")
+    
     workflow.add_edge("auto_refund", END)
-    workflow.add_edge("investigator", END)
     workflow.add_edge("human_review", END)
     
     conn = sqlite3.connect("data/checkpoints.sqlite", check_same_thread=False)

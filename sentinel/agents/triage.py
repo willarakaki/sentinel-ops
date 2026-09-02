@@ -31,11 +31,11 @@ def triage_node(state: DisputeState) -> dict:
     
     # 3. Engenharia de Prompt focada em SLM (few_shot prompt)
     system_prompt = """Você é um analista de triagem de dados estruturados.
-        Sua única função é classificar a queixa do cliente e retornar EXATAMENTE UM JSON.
+        Sua única função é classificar a queixa do cliente e retornar EXATAMENTE UM JSON, usando APENAS as categorias abaixo.
         NÃO escreva nenhuma palavra antes ou depois do JSON.
 
-        FORMATO DE SAÍDA ESPERADO:
-        {"intent": "sua_classificacao", "risk_level": "baixo|moderado|elevado|critico"}
+        FORMATO OBRIGATÓRIO (Exemplo):
+        {"intent": "motivo_resumido", "risk_level": "baixo"}
 
         REGRAS DE RISCO:
         - 'baixo': Dúvidas simples, atrasos pequenos.
@@ -43,13 +43,17 @@ def triage_node(state: DisputeState) -> dict:
         - 'elevado': Valores altos, xingamentos, ameaças de processo ou agressividade.
         - 'critico': Suspeita de fraude, invasão de conta ou risco de vida.
 
-        EXEMPLO 1:
+        EXEMPLO 1 (Atraso simples):
         Queixa: "Meu pedido atrasou 10 minutos, mas chegou."
         Saída: {"intent": "atraso", "risk_level": "baixo"}
 
-        EXEMPLO 2:
+        EXEMPLO 2 (Agressividade / Procon):
         Queixa: "Vou processar vocês, o entregador foi agressivo e a comida veio revirada! Devolvam meu dinheiro!"
-        Saída: {"intent": "item_danificado", "risk_level": "elevado"}
+        Saída: {"intent": "produto_danificado", "risk_level": "elevado"}
+
+        EXEMPLO 3 (Item Faltante):
+        Queixa: "Comprei dois combos, mas um deles veio sem a batata grande."
+        Saída: {"intent": "item_faltante", "risk_level": "moderado"}
         """
 
     messages = [
