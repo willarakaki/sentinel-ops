@@ -33,6 +33,14 @@ class SemanticCache:
             
         print(f"  🐢 [Semantic Cache] CACHE MISS. Distância {score:.4f} é maior que o limite. Nuvem acionada.")
         return None
+    
+    def build_cache_key(self, query_masked: str, telemetry_data: str) -> str:
+        """
+        Monta uma Chave Composta. Isso previne o 'Cache Poisoning',
+        garantindo que não aprovaremos fraudes apenas porque a frase é igual 
+        a de um cliente honesto. A telemetria deve ser semanticamente similar também.
+        """
+        return f"[Queixa]: {query_masked}\n[Evidências]: {telemetry_data}"
 
     def save_to_cache(self, query: str, action: str, justification: str):
         """
