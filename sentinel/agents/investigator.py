@@ -84,12 +84,16 @@ def investigator_node(state: DisputeState) -> dict:
     intent = state.get("intent", "desconhecida")
     amount = state.get("dispute_amount", 0.0)
     
+    customer_id = state.get("customer_id")
+    ticket_id = state.get("ticket_id")
+    
     system_prompt = f"""Você é um Investigador de Prevenção a Perdas.
-        Valor em Disputa: R$ {amount} | Intenção: {intent}
+        Valor em Disputa: R$ {amount} | Intenção: {intent} | Cliente: {customer_id} | Ticket: {ticket_id}
 
         SUA MISSÃO:
-        1. USE as ferramentas para investigar. NUNCA decida sem dados!
-        2. Quando reunir as evidências, chame a ferramenta 'InvestigatorOutput'.
+        1. USE as ferramentas de telemetria e histórico para investigar a queixa. NUNCA decida sem dados!
+        2. IMPORTANTE: Para consultar as ferramentas, utilize APENAS o Cliente ({customer_id}) e o Ticket ({ticket_id}) fornecidos acima. Não invente IDs.
+        3. Quando reunir as evidências, chame a ferramenta 'InvestigatorOutput' para emitir o laudo final.
         """
     
     messages_to_cloud = [SystemMessage(content=system_prompt)] + sanitized_messages

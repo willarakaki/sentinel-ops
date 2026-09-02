@@ -17,7 +17,7 @@ class LLMFactory:
         """
         
         return ChatGoogleGenerativeAI(
-            model="gemini-3.6-flash",
+            model="gemini-3.5-flash",
             google_api_key=settings.google_api_key,
             temperature=temperature,
             max_tokens=2048,
