@@ -3,6 +3,7 @@ from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 
 from sentinel.core.llm_factory import LLMFactory
 from sentinel.schemas.state import DisputeState
+from sentinel.tools.database import get_delivery_telemetry, get_customer_history
 
 # ==========================================
 # 1. CONTRATO DE SAÍDA (Native Tool Calling)
@@ -19,62 +20,50 @@ class InvestigatorOutput(BaseModel):
     )
 
 # ==========================================
-# 2. LÓGICA DO NÓ DE INVESTIGAÇÃO (Cloud LLM)
+# 2. LÓGICA DO NÓ DE INVESTIGAÇÃO (ReAct Loop)
 # ==========================================
 def investigator_node(state: DisputeState) -> dict:
-    """
-    Agente Cognitivo. Utiliza o Gemini (Nuvem) para analisar 
-    o contexto completo e tomar a decisão financeira final.
-    """
     print("--- [NÓ: INVESTIGADOR (Nuvem / Gemini)] ---")
+
+    cloud_llm = LLMFactory.get_cloud_model(temperature=0.1)
+    db_tools = [get_delivery_telemetry, get_customer_history]
     
-    # 1. Extrai o contexto acumulado na prancheta
-    customer_message = state["messages"][0].content # A queixa original
+    # Vincula as ferramentas de busca e a ferramenta de decisão final
+    llm_with_tools = cloud_llm.bind_tools(db_tools + [InvestigatorOutput])
+    
     intent = state.get("intent", "desconhecida")
     amount = state.get("dispute_amount", 0.0)
-    telemetry = state.get("telemetry_data", {}) # Mock para a próxima Sprint (MCP)
+    customer_id = state.get("customer_id")
+    ticket_id = state.get("ticket_id")
     
-    # 2. Instancia o LLM da Nuvem (Baixa temperatura para ser analítico, não criativo)
-    cloud_llm = LLMFactory.get_cloud_model(temperature=0.1)
+    system_prompt = f"""Você é um Investigador de Prevenção a Perdas (SentinelOps).
+        Valor em Disputa: R$ {amount} | Intenção: {intent} | Cliente: {customer_id} | Ticket: {ticket_id}
+
+        SUA MISSÃO:
+        1. USE as ferramentas de telemetria e histórico para investigar a queixa. NUNCA decida sem dados!
+        2. Quando reunir as evidências, chame a ferramenta 'InvestigatorOutput' para emitir o laudo final.
+        """
     
-    # 3. Habilita o Native Structured Output
-    # Isso substitui o json.loads() e a Engenharia de Prompt complexa
-    structured_llm = cloud_llm.with_structured_output(InvestigatorOutput)
-    
-    # 4. Prompt Contextual
-    system_prompt = f"""Você é um Investigador Sênior de Prevenção a Perdas (SentinelOps).
-    Sua missão é analisar queixas de clientes e decidir de forma justa e implacável.
-
-    [CONTEXTO DA DISPUTA]
-    - Valor: R$ {amount}
-    - Intenção Triada: {intent}
-    - Dados de Telemetria: {telemetry if telemetry else "Nenhum dado externo anexado ainda."}
-
-    Analise a queixa e retorne a ação recomendada, sua justificativa técnica e se precisa de revisão humana."""
-
-    messages = [
-        SystemMessage(content=system_prompt),
-        HumanMessage(content=f"Queixa do cliente: {customer_message}")
-    ]
+    # Garante que o system prompt seja injetado nas mensagens que vão para o modelo
+    messages = [SystemMessage(content=system_prompt)] + state["messages"]
     
     try:
-        # A invocação já devolve o objeto Pydantic validado!
-        result: InvestigatorOutput = structured_llm.invoke(messages)
+        response = llm_with_tools.invoke(messages)
         
-        print(f"[VEREDITO] Ação: {result.recommended_action} | HITL: {result.human_in_the_loop_required}")
-        print(f"[PARECER] {result.justification}")
+        # Verifica se o modelo decidiu emitir o laudo final (chamou InvestigatorOutput)
+        if response.tool_calls and response.tool_calls[0]["name"] == "InvestigatorOutput":
+            print("[INVESTIGAÇÃO CONCLUÍDA] Veredito alcançado com base em dados.")
+            args = response.tool_calls[0]["args"]
+            return {
+                "recommended_action": args["recommended_action"],
+                "human_in_the_loop_required": args["human_in_the_loop_required"],
+                "messages": [AIMessage(content=f"Parecer Baseado em Dados: {args['justification']}")]
+            }
         
-        # 5. Atualiza o Estado
-        return {
-            "recommended_action": result.recommended_action,
-            "human_in_the_loop_required": result.human_in_the_loop_required,
-            # Usa o Reducer para registrar o pensamento da IA na auditoria do ticket
-            "messages": [AIMessage(content=f"Parecer Investigativo: {result.justification}")]
-        }
+        # Se ele chamou ferramentas do DuckDB, apenas anexamos a mensagem para o ToolNode processar
+        print(f"[AÇÃO DO AGENTE] Solicitando busca de dados: {[t['name'] for t in response.tool_calls]}")
+        return {"messages": [response]}
         
     except Exception as e:
-        print(f"[ERRO NO INVESTIGADOR CLOUD] {e}")
-        return {
-            "recommended_action": "erro_api_nuvem",
-            "human_in_the_loop_required": True
-        }
+        print(f"[ERRO NO INVESTIGADOR] {e}")
+        return {"recommended_action": "erro_api_nuvem", "human_in_the_loop_required": True}
