@@ -18,17 +18,18 @@ def format_stream_output(stream):
         for node_name, node_state in step.items():
             print(f"  🔄 [Passo Executado] Nó: '{node_name}'")
             
-            # Se for o nó de ferramentas (DuckDB), mostra o que ele devolveu para a IA
             if node_name == "tools":
                 print(f"  🗄️  [DuckDB - Dados Extraídos]:\n{node_state['messages'][-1].content}\n")
             
-            # Se for o nó do investigador, verifica a conclusão
             elif node_name == "investigator":
-                last_message = node_state["messages"][-1]
-                if isinstance(last_message, AIMessage) and not last_message.tool_calls:
-                    print(f"  ⚖️  [Veredito Gemini]: {last_message.content}\n")
-            
-            # Outros nós
+                # Usa .get e verifica se a lista não está vazia
+                messages = node_state.get("messages", [])
+                if messages:
+                    last_message = messages[-1]
+                    if isinstance(last_message, AIMessage) and not getattr(last_message, 'tool_calls', True):
+                        print(f"  ⚖️  [Veredito Gemini]: {last_message.content}\n")
+                else:
+                    print(f"  ⚠️ [Fallback Executado] Ação: {node_state.get('recommended_action')}\n")
             else:
                 print(f"  📝 [Estado Delta] {node_state}\n")
 
