@@ -1,6 +1,7 @@
 import re
 from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_ollama import ChatOllama
+from sentinel.core.llm_factory import LLMFactory
 
 from sentinel.schemas.state import DisputeState
 
@@ -33,7 +34,7 @@ def check_semantics_llm(text: str) -> bool:
     """Usa Llama Guard 3 para avaliar ataques semânticos complexos."""
     try:
         # Usamos o modelo ultraleve da Meta focado apenas em Red Teaming
-        llama_guard = ChatOllama(model="llama-guard3:1b", temperature=0.0)
+        llama_guard = LLMFactory.get_security_model(temperature=0.0)
         
         # O Llama Guard usa um formato de prompt específico, mas a integração do LangChain
         # lida bem com a estrutura de mensagens padrão.
