@@ -10,6 +10,7 @@ from sentinel.agents.triage import triage_node
 from sentinel.agents.investigator import investigator_node
 from config.settings import dispute_rules
 from sentinel.tools.database import get_delivery_telemetry, get_customer_history
+from sentinel.agents.security_shield import security_shield_node
 
 os.makedirs("data", exist_ok=True)
 
@@ -61,6 +62,19 @@ def route_investigator(state: DisputeState) -> str:
         return END
     return "tools"
 
+def route_security(state: DisputeState) -> str:
+    """
+    Se o WAF identificar um ataque, roteia direto para a revisão humana
+    de fraudes e congela o fluxo. Caso contrário, segue para a Triagem.
+    """
+    print("--- [ROTEADOR: Firewall de IA] ---")
+    if state.get("recommended_action") == "bloqueio_seguranca":
+        print(">> 🚨 ALERTA: Ataque bloqueado! Enviando para a Equipe de Fraudes.")
+        return "human_review"
+    
+    print(">> Tráfego seguro. Prosseguindo para Triagem de Negócios.")
+    return "triage"
+
 # ==========================================
 # 3. ORQUESTRADOR LANGGRAPH
 # ==========================================
@@ -69,6 +83,7 @@ def build_graph():
     workflow = StateGraph(DisputeState)
     
     # Registra todos os nós
+    workflow.add_node("security_shield", security_shield_node)
     workflow.add_node("triage", triage_node)
     workflow.add_node("investigator", investigator_node)
     workflow.add_node("auto_refund", auto_refund_node)
@@ -78,7 +93,16 @@ def build_graph():
     workflow.add_node("tools", ToolNode(db_tools))
     
     # Desenha o fluxo
-    workflow.add_edge(START, "triage")
+    workflow.add_edge(START, "security_shield")
+    
+    workflow.add_conditional_edges(
+        "security_shield",
+        route_security,
+        {
+            "human_review": "human_review", # Vai para fraude
+            "triage": "triage"              # Vai para o negócio
+        }
+    )
     
     workflow.add_conditional_edges(
         "triage",               # Nó de origem

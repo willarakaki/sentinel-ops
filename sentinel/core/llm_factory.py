@@ -38,3 +38,12 @@ class LLMFactory:
             format="json" # Força o modelo a cuspir JSON para facilitar o roteamento
         )
         
+    @staticmethod
+    def get_security_model(temperature: float = 0.0):
+        """
+        Retorna o modelo de Segurança Ofensiva (AI WAF).
+        Otimizado para rodar junto com o Llama 3.2 na VRAM de 8GB.
+        """
+        print("  ⚙️ [Factory] Instanciando SLM de Segurança (Llama Guard 3 1B)...")
+        return ChatOllama(model="llama-guard3:1b", temperature=temperature)
+        
