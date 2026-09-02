@@ -55,5 +55,8 @@ class LLMFactory:
         Usamos o nomic-embed-text via Ollama (Custo $0, execução local).
         """
         print("  ⚙️ [Factory] Instanciando Modelo de Embeddings (Nomic)...")
-        return OllamaEmbeddings(model="nomic-embed-text")
+        return OllamaEmbeddings(
+            model="nomic-embed-text:latest",
+            base_url=settings.ollama_base_url,
+        )
         
