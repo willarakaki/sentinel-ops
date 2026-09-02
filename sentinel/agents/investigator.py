@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from tenacity import retry, stop_after_attempt, wait_random_exponential
 
 from sentinel.core.llm_factory import LLMFactory
 from sentinel.schemas.state import DisputeState
@@ -22,7 +22,7 @@ class InvestigatorOutput(BaseModel):
 # Espera 2s, depois 4s, depois 8s...
 @retry(
     stop=stop_after_attempt(4),
-    wait=wait_exponential(multiplier=1, min=2, max=10),
+    wait=wait_random_exponential(multiplier=1, min=2, max=15), # Adiciona aleatoriedade entre 2s e 15s
     reraise=True
 )
 def invoke_with_backoff(llm_with_tools, messages):
@@ -71,4 +71,8 @@ def investigator_node(state: DisputeState) -> dict:
         
     except Exception as e:
         print(f"[ERRO FATAL NO INVESTIGADOR CLOUD após retentativas] {e}")
-        return {"recommended_action": "erro_api_nuvem", "human_in_the_loop_required": True}
+        return {
+            "recommended_action": "erro_api_nuvem", 
+            "human_in_the_loop_required": True,
+            "messages": [AIMessage(content="Falha de comunicação com a API. Ticket enviado para revisão humana.")] # <- Correção do KeyError
+        }
