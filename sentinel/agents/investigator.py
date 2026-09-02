@@ -5,6 +5,7 @@ from tenacity import retry, stop_after_attempt, wait_random_exponential
 from sentinel.core.llm_factory import LLMFactory
 from sentinel.schemas.state import DisputeState
 from sentinel.tools.database import get_delivery_telemetry, get_customer_history
+from sentinel.core.privacy import mask_pii
 
 # ==========================================
 # 1. CONTRATO DE SAÍDA
@@ -45,17 +46,34 @@ def investigator_node(state: DisputeState) -> dict:
     ticket_id = state.get("ticket_id")
     
     system_prompt = f"""Você é um Investigador de Prevenção a Perdas.
-        Valor em Disputa: R$ {amount} | Intenção: {intent} | Cliente: {customer_id} | Ticket: {ticket_id}
+Valor em Disputa: R$ {amount} | Intenção: {intent} | Cliente: {customer_id} | Ticket: {ticket_id}
 
-        SUA MISSÃO:
-        1. USE as ferramentas de telemetria e histórico para investigar a queixa. NUNCA decida sem dados!
-        2. Quando reunir as evidências, chame a ferramenta 'InvestigatorOutput' para emitir o laudo final.
-        """
+SUA MISSÃO:
+1. USE as ferramentas de telemetria e histórico para investigar a queixa. NUNCA decida sem dados!
+2. Quando reunir as evidências, chame a ferramenta 'InvestigatorOutput' para emitir o laudo final.
+"""
     
-    messages = [SystemMessage(content=system_prompt)] + state["messages"]
+    # ---------------------------------------------------------
+    # HIGIENIZAÇÃO DE DADOS (PRIVACY BY DESIGN)
+    # ---------------------------------------------------------
+    sanitized_messages = []
+    for msg in state["messages"]:
+        if isinstance(msg, HumanMessage):
+            # Limpa o texto original do cliente antes de ir para a nuvem
+            clean_text = mask_pii(msg.content)
+            sanitized_messages.append(HumanMessage(content=clean_text))
+        else:
+            # Mantém as mensagens do sistema e ferramentas intactas
+            sanitized_messages.append(msg)
+            
+    print("  🔒 [Privacy] Contexto do cliente anonimizado com sucesso.")
+    
+    # Concatena o prompt de sistema com as mensagens limpas
+    messages_to_cloud = [SystemMessage(content=system_prompt)] + sanitized_messages
     
     try:
-        response = invoke_with_backoff(llm_with_tools, messages)
+        # Envia apenas o payload higienizado para o Gemini
+        response = invoke_with_backoff(llm_with_tools, messages_to_cloud)
         
         if response.tool_calls and response.tool_calls[0]["name"] == "InvestigatorOutput":
             print("[INVESTIGAÇÃO CONCLUÍDA] Veredito alcançado com base em dados.")
@@ -74,5 +92,5 @@ def investigator_node(state: DisputeState) -> dict:
         return {
             "recommended_action": "erro_api_nuvem", 
             "human_in_the_loop_required": True,
-            "messages": [AIMessage(content="Falha de comunicação com a API. Ticket enviado para revisão humana.")] # <- Correção do KeyError
+            "messages": [AIMessage(content="Falha de comunicação com a API. Ticket enviado para revisão humana.")]
         }
