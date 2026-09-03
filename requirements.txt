@@ -25,3 +25,4 @@ spacy
 langsmith>=0.1.0
 python-dotenv
 streamlit
+deepeval
