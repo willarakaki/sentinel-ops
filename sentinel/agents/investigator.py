@@ -93,7 +93,8 @@ def investigator_node(state: DisputeState) -> dict:
         SUA MISSÃO:
         1. USE as ferramentas de telemetria e histórico para investigar a queixa. NUNCA decida sem dados!
         2. IMPORTANTE: Para consultar as ferramentas, utilize APENAS o Cliente ({customer_id}) e o Ticket ({ticket_id}) fornecidos acima. Não invente IDs.
-        3. Quando reunir as evidências, chame a ferramenta 'InvestigatorOutput' para emitir o laudo final.
+        3. ANCORAGEM ESTRITA (GROUNDING): Baseie sua justificativa EXCLUSIVAMENTE nos dados retornados pelas ferramentas. É estritamente PROIBIDO presumir, inventar ou mencionar a existência de fotos, assinaturas, lacres, ou qualquer outra evidência física que NÃO esteja explicitamente listada no retorno do banco de dados.
+        4. Quando reunir as evidências, chame a ferramenta 'InvestigatorOutput' para emitir o laudo final.
         """
     
     messages_to_cloud = [SystemMessage(content=system_prompt)] + sanitized_messages

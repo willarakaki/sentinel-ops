@@ -17,7 +17,7 @@ class LLMFactory:
         """
         
         return ChatGoogleGenerativeAI(
-            model="gemini-3.5-flash",
+            model="gemini-3.6-flash",
             google_api_key=settings.google_api_key,
             temperature=temperature,
             max_tokens=2048,
@@ -60,3 +60,12 @@ class LLMFactory:
             base_url=settings.ollama_base_url,
         )
         
+    @staticmethod
+    def get_evaluator_model(temperature=0.0):
+        """
+        Retorna o modelo configurado estritamente para avaliação e auditoria (LLM-as-a-Judge).
+        Temperatura forçada a 0 para garantir determinismo nas métricas do DeepEval.
+        """
+        print("  ⚙️ [Factory] Instanciando Modelo Juiz (Gemini 3 Flash Preview)...")
+        # Substitua por "gemini-1.5-flash" se o 2.0 ainda não estiver disponível na sua key
+        return ChatGoogleGenerativeAI(model="gemini-3-flash-preview", temperature=temperature)

@@ -23,4 +23,7 @@ spacy
 
 # --- Observabilidade ---
 langsmith>=0.1.0
+python-dotenv
 streamlit
+portalocker[win32] ; sys_platform == 'win32'
+deepeval
