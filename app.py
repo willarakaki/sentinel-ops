@@ -39,6 +39,7 @@ for msg in st.session_state.chat_history:
 # 3. INTERAÇÃO E INVOCAÇÃO DO LANGGRAPH
 # ---------------------------------------------------------
 if prompt := st.chat_input("Descreva o seu problema com o pedido..."):
+    
     # Renderiza a queixa do cliente na tela imediatamente
     st.session_state.chat_history.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
@@ -55,22 +56,41 @@ if prompt := st.chat_input("Descreva o seu problema com o pedido..."):
 
     # Aciona o Orquestrador e captura a resposta final
     with st.chat_message("assistant"):
-        with st.spinner("Processando através da arquitetura SentinelOps..."):
-            final_response = ""
-            
-            # Itera pelo stream do LangGraph para pegar o último delta de estado
+        
+        # 1. STREAMING DO RACIOCÍNIO (Fim da tela congelada)
+        with st.status("Iniciando investigação autônoma...", expanded=True) as status:
             for event in sentinel_app.stream(input_data, config=config):
-                # Podemos ler os nós passando por aqui futuramente para a UI
-                pass
+                # O LangGraph retorna um dicionário com o nome do nó que acabou de rodar
+                for node_name, node_state in event.items():
+                    st.write(f"⚙️ Passo concluído: **{node_name.upper()}**")
             
-            # Quando o fluxo termina, extraímos o estado final do LangGraph
-            final_state = sentinel_app.get_state(config).values
-            
-            # Pega a última mensagem gerada pelo sistema
-            if final_state.get("messages"):
-                final_response = final_state["messages"][-1].content
-            else:
-                final_response = "Fluxo interrompido ou sem resposta textual (ex: Bloqueio WAF)."
+            # Atualiza o status quando o grafo terminar
+            status.update(label="Investigação concluída!", state="complete", expanded=False)
 
-            st.markdown(final_response)
-            st.session_state.chat_history.append({"role": "assistant", "content": final_response})
+        # 2. EXTRAÇÃO DO ESTADO FINAL
+        final_state = sentinel_app.get_state(config).values
+        action = final_state.get("recommended_action", "")
+        
+        final_response_text = ""
+        
+        # 3. RENDERIZAÇÃO VISUAL RICA (A2UI)
+        if action == "bloqueio_seguranca":
+            st.error("🚨 **ALERTA DE SEGURANÇA (AI WAF)**\n\nTentativa de manipulação semântica ou ataque cibernético detectado. O tráfego foi bloqueado e o incidente foi reportado à equipe de Fraudes.")
+            final_response_text = "[Sistema]: Bloqueio de Segurança."
+            
+        elif action == "auto_refund":
+            st.success("✅ **REEMBOLSO APROVADO IMEDIATAMENTE**\n\nA triagem classificou o caso como de baixo risco. O estorno foi processado sem necessidade de intervenção humana.")
+            final_response_text = "[Sistema]: Reembolso automático aprovado."
+            
+        else:
+            # Caso caia no Investigador (Gemini) ou Revisão Humana
+            st.info(f"🔍 **PARECER DA INVESTIGAÇÃO (Ação recomendada: {action})**")
+            if final_state.get("messages"):
+                final_response_text = final_state["messages"][-1].content
+                st.markdown(final_response_text)
+            else:
+                final_response_text = "Nenhuma justificativa textual gerada."
+                st.markdown(final_response_text)
+
+        # Salva o resumo no histórico visual para a tela não bugar ao dar refresh
+        st.session_state.chat_history.append({"role": "assistant", "content": final_response_text})
