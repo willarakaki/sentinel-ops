@@ -1,6 +1,7 @@
 import pytest
+import re
 from deepeval import assert_test
-from deepeval.metrics import HallucinationMetric
+from deepeval.metrics import FaithfulnessMetric
 from deepeval.test_case import LLMTestCase
 from deepeval.models.base_model import DeepEvalBaseLLM
 from dotenv import load_dotenv
@@ -25,13 +26,34 @@ class GeminiJudge(DeepEvalBaseLLM):
         return self.model
 
     def _extract_text(self, content) -> str:
-        """Garante que a saída seja sempre uma string plana, lidando com listas de blocos multimodais do Gemini."""
+        """Extrator Regex à prova de balas para JSON e blindagem contra Silent Retries."""
+        text = ""
         if isinstance(content, str):
-            return content
+            text = content
         elif isinstance(content, list):
-            # Extrai o texto dos dicionários de conteúdo do LangChain
-            return " ".join([block.get("text", "") for block in content if isinstance(block, dict)])
-        return str(content)
+            text = " ".join([block.get("text", "") for block in content if isinstance(block, dict)])
+        else:
+            text = str(content)
+            
+        text = text.strip()
+        
+        # 1. OBSERVABILIDADE: Printa no terminal o que o Gemini respondeu
+        # Usamos limitador de 300 caracteres para não poluir demais a tela
+        print(f"\n🕵️‍♂️ [DEBUG JUIZ] Saída Bruta do Gemini:\n{text[:300]}...\n")
+        
+        # 2. CAÇADOR DE MARKDOWN (Regex)
+        # Captura qualquer coisa entre ```json (ou só ```) e o fechamento ```
+        match = re.search(r'```(?:json)?(.*?)```', text, re.DOTALL)
+        if match:
+            return match.group(1).strip()
+            
+        # 3. FALLBACK DE CHAVES (Caso ele responda texto misturado com JSON)
+        start = text.find('{')
+        end = text.rfind('}')
+        if start != -1 and end != -1:
+            return text[start:end+1]
+            
+        return text
 
     def generate(self, prompt: str) -> str:
         res = self.model.invoke(prompt)
@@ -55,11 +77,13 @@ def test_investigator_grounding():
     
     resposta_do_agente = "Parecer Baseado em Dados: A entrega foi no local correto. A foto anexada mostra a sacola fechada com lacre. Reembolso negado."
     
+    # 2. Na Fidelidade, os dados do banco devem entrar como 'retrieval_context'
     test_case = LLMTestCase(
         input="Meu pedido veio sem a batata.",
         actual_output=resposta_do_agente,
-        context=contexto_do_banco
+        retrieval_context=contexto_do_banco # <- Atenção a esta mudança de parâmetro
     )
     
-    metric = HallucinationMetric(threshold=0.5, model=GeminiJudge())
+    # 3. Troque a classe da métrica e mantenha o nosso juiz
+    metric = FaithfulnessMetric(threshold=0.5, model=GeminiJudge())
     assert_test(test_case, [metric])
