@@ -8,7 +8,7 @@ class SemanticCache:
         self.embeddings = LLMFactory.get_embeddings_model()
         self.vector_store = None
         # 0.2 é um bom ponto de partida para "mesmo significado".
-        self.distance_threshold = 0.25 
+        self.distance_threshold = 0.35 
 
     def check_cache(self, query: str) -> dict | None:
         """
@@ -53,7 +53,11 @@ class SemanticCache:
         
         if self.vector_store is None:
             # Se for o primeiro item, inicializamos o FAISS
-            self.vector_store = FAISS.from_documents([doc], self.embeddings)
+            self.vector_store = FAISS.from_documents(
+                [doc], 
+                self.embeddings,
+                normalize_L2=True
+            )
         else:
             # Caso contrário, apenas adicionamos ao banco existente
             self.vector_store.add_documents([doc])
