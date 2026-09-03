@@ -13,21 +13,33 @@ load_dotenv()
 # ---------------------------------------------------------
 # 1. CONFIGURAÇÃO DO JUIZ (Injeção via Factory)
 # ---------------------------------------------------------
+# ---------------------------------------------------------
+# 1. CONFIGURAÇÃO DO JUIZ (Injeção via Factory)
+# ---------------------------------------------------------
 class GeminiJudge(DeepEvalBaseLLM):
-    """Wrapper corporativo integrando o DeepEval à nossa LLMFactory."""
+    """Wrapper corporativo integrando o DeepEval à nossa LLMFactory e blindando contra respostas multimodais."""
     def __init__(self):
-        # O modelo e a temperatura agora são governados centralmente
         self.model = LLMFactory.get_evaluator_model()
 
     def load_model(self):
         return self.model
 
+    def _extract_text(self, content) -> str:
+        """Garante que a saída seja sempre uma string plana, lidando com listas de blocos multimodais do Gemini."""
+        if isinstance(content, str):
+            return content
+        elif isinstance(content, list):
+            # Extrai o texto dos dicionários de conteúdo do LangChain
+            return " ".join([block.get("text", "") for block in content if isinstance(block, dict)])
+        return str(content)
+
     def generate(self, prompt: str) -> str:
-        return self.model.invoke(prompt).content
+        res = self.model.invoke(prompt)
+        return self._extract_text(res.content)
 
     async def a_generate(self, prompt: str) -> str:
         res = await self.model.ainvoke(prompt)
-        return res.content
+        return self._extract_text(res.content)
     
     def get_model_name(self):
         return "SentinelOps-Central-Evaluator"
