@@ -1,6 +1,9 @@
 version: '3.8'
 
 services:
+  # -------------------------------------------------------------
+  # FASE 1: OLLAMA SERVER (O motor de Inferência Local)
+  # -------------------------------------------------------------
   ollama:
     image: ollama/ollama:latest
     container_name: sentinel_ollama
@@ -8,8 +11,6 @@ services:
       - "11434:11434"
     volumes:
       - ollama_data:/root/.ollama
-    # As 4 linhas abaixo ativam o uso da sua RTX 3070 dentro do Docker.
-    # Requisito: Você precisa ter o NVIDIA Container Toolkit instalado na máquina host.
     deploy:
       resources:
         reservations:
@@ -17,6 +18,53 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
+    restart: unless-stopped
+
+  # -------------------------------------------------------------
+  # FASE 2: PROVISIONADOR (Init Container - Roda e Desliga)
+  # -------------------------------------------------------------
+  ollama-init:
+    image: ollama/ollama:latest
+    container_name: sentinel_ollama_init
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    # Sobrescrevemos a trava da imagem original para usar o Shell do Linux
+    entrypoint: [ "/bin/sh", "-c" ]
+    # Usamos o pipe (|) para rodar um script limpo de múltiplas linhas
+    command: |
+      echo "⏳ Aguardando o motor do Ollama iniciar (5s)..."
+      sleep 5
+      
+      echo "⚙️ Baixando WAF (llama-guard3:1b)..."
+      ollama pull llama-guard3:1b
+      
+      echo "⚙️ Baixando Embeddings (nomic-embed-text:latest)..."
+      ollama pull nomic-embed-text:latest
+      
+      echo "✅ Provisionamento de SLMs concluído com sucesso!"
+    depends_on:
+      - ollama
+
+  # -------------------------------------------------------------
+  # FASE 3: SENTINEL-APP (Backend LangGraph + UI Streamlit)
+  # -------------------------------------------------------------
+  sentinel-app:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: sentinel-ui
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data
+    env_file:
+      - .env
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+    depends_on:
+      # O app SÓ sobe quando o provisionador (Fase 2) terminar com sucesso
+      ollama-init:
+        condition: service_completed_successfully
     restart: unless-stopped
 
 volumes:

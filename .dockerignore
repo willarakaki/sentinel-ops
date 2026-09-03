@@ -1,0 +1,20 @@
+# Ambientes Virtuais e Cache
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.deepeval/
+.deepeval_cache/
+
+# Bancos de Dados Locais e Logs
+data/
+*.db
+*.sqlite
+*.duckdb
+
+# Segredos (NUNCA VÃO PARA A IMAGEM)
+.env
+
+# Git
+.git/

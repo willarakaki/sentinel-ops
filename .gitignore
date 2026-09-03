@@ -16,6 +16,10 @@ ENV/
 credentials.json
 # Nota: .env.example NÃO está ignorado, ele deve subir para o Git.
 
+# Cache e Artefatos do DeepEval
+.deepeval/
+.deepeval_cache/
+
 # ==========================================================
 # 3. IDEs e Sistemas Operacionais
 # ==========================================================
