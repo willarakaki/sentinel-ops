@@ -6,6 +6,7 @@ from sentinel.core.llm_factory import LLMFactory
 from sentinel.schemas.state import DisputeState
 from sentinel.tools.database import get_delivery_telemetry, get_customer_history
 from sentinel.core.privacy import mask_pii
+from sentinel.core.cache import semantic_cache
 
 # ==========================================
 # 1. CONTRATO DE SAÍDA
@@ -40,44 +41,77 @@ def investigator_node(state: DisputeState) -> dict:
     db_tools = [get_delivery_telemetry, get_customer_history]
     llm_with_tools = cloud_llm.bind_tools(db_tools + [InvestigatorOutput])
     
+    # ---------------------------------------------------------
+    # 2. EXTRAÇÃO DE CONTEXTO PARA O CACHE
+    # ---------------------------------------------------------
+    masked_query = ""
+    tool_responses = []
+    sanitized_messages = []
+    
+    for msg in state["messages"]:
+        if isinstance(msg, HumanMessage):
+            # Limpa PII e guarda a queixa base para o Cache
+            clean_text = mask_pii(msg.content)
+            if not masked_query:
+                masked_query = clean_text 
+            sanitized_messages.append(HumanMessage(content=clean_text))
+        elif msg.type == "tool":
+            # Coleta as evidências devolvidas pelo banco de dados
+            tool_responses.append(msg.content)
+            sanitized_messages.append(msg)
+        else:
+            sanitized_messages.append(msg)
+            
+    # Se o ToolNode já devolveu dados, estamos prontos para checar o FAISS
+    evidence_text = "\n".join(tool_responses)
+    
+    if tool_responses:
+        print("  🔍 [Investigador] Evidências detectadas. Consultando Semantic Cache...")
+        cache_key = semantic_cache.build_cache_key(masked_query, evidence_text)
+        cached_result = semantic_cache.check_cache(cache_key)
+        
+        if cached_result:
+            # CACHE HIT! O custo desta execução acabou de cair para R$ 0,00
+            return {
+                "recommended_action": cached_result["recommended_action"],
+                "human_in_the_loop_required": False, # Assumimos a confiança do cache passado
+                "messages": [AIMessage(content=f"Parecer Baseado em Dados (VIA CACHE): {cached_result['justification']}")]
+            }
+    
+    # ---------------------------------------------------------
+    # 3. PREPARAÇÃO DA CHAMADA (CACHE MISS)
+    # ---------------------------------------------------------
     intent = state.get("intent", "desconhecida")
     amount = state.get("dispute_amount", 0.0)
+    
     customer_id = state.get("customer_id")
     ticket_id = state.get("ticket_id")
     
     system_prompt = f"""Você é um Investigador de Prevenção a Perdas.
-Valor em Disputa: R$ {amount} | Intenção: {intent} | Cliente: {customer_id} | Ticket: {ticket_id}
+        Valor em Disputa: R$ {amount} | Intenção: {intent} | Cliente: {customer_id} | Ticket: {ticket_id}
 
-SUA MISSÃO:
-1. USE as ferramentas de telemetria e histórico para investigar a queixa. NUNCA decida sem dados!
-2. Quando reunir as evidências, chame a ferramenta 'InvestigatorOutput' para emitir o laudo final.
-"""
+        SUA MISSÃO:
+        1. USE as ferramentas de telemetria e histórico para investigar a queixa. NUNCA decida sem dados!
+        2. IMPORTANTE: Para consultar as ferramentas, utilize APENAS o Cliente ({customer_id}) e o Ticket ({ticket_id}) fornecidos acima. Não invente IDs.
+        3. Quando reunir as evidências, chame a ferramenta 'InvestigatorOutput' para emitir o laudo final.
+        """
     
-    # ---------------------------------------------------------
-    # HIGIENIZAÇÃO DE DADOS (PRIVACY BY DESIGN)
-    # ---------------------------------------------------------
-    sanitized_messages = []
-    for msg in state["messages"]:
-        if isinstance(msg, HumanMessage):
-            # Limpa o texto original do cliente antes de ir para a nuvem
-            clean_text = mask_pii(msg.content)
-            sanitized_messages.append(HumanMessage(content=clean_text))
-        else:
-            # Mantém as mensagens do sistema e ferramentas intactas
-            sanitized_messages.append(msg)
-            
-    print("  🔒 [Privacy] Contexto do cliente anonimizado com sucesso.")
-    
-    # Concatena o prompt de sistema com as mensagens limpas
     messages_to_cloud = [SystemMessage(content=system_prompt)] + sanitized_messages
     
     try:
-        # Envia apenas o payload higienizado para o Gemini
         response = invoke_with_backoff(llm_with_tools, messages_to_cloud)
         
         if response.tool_calls and response.tool_calls[0]["name"] == "InvestigatorOutput":
             print("[INVESTIGAÇÃO CONCLUÍDA] Veredito alcançado com base em dados.")
             args = response.tool_calls[0]["args"]
+            
+            # ---------------------------------------------------------
+            # 4. SALVANDO NO CACHE PARA O FUTURO
+            # ---------------------------------------------------------
+            if tool_responses:
+                cache_key = semantic_cache.build_cache_key(masked_query, evidence_text)
+                semantic_cache.save_to_cache(cache_key, args["recommended_action"], args["justification"])
+            
             return {
                 "recommended_action": args["recommended_action"],
                 "human_in_the_loop_required": args["human_in_the_loop_required"],
@@ -88,9 +122,9 @@ SUA MISSÃO:
         return {"messages": [response]}
         
     except Exception as e:
-        print(f"[ERRO FATAL NO INVESTIGADOR CLOUD após retentativas] {e}")
+        print(f"[ERRO FATAL NO INVESTIGADOR CLOUD] {e}")
         return {
             "recommended_action": "erro_api_nuvem", 
             "human_in_the_loop_required": True,
-            "messages": [AIMessage(content="Falha de comunicação com a API. Ticket enviado para revisão humana.")]
+            "messages": [AIMessage(content="Falha de comunicação com a API.")]
         }

@@ -1,5 +1,6 @@
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_ollama import ChatOllama
+from langchain_community.embeddings import OllamaEmbeddings
 from config.settings import settings
 
 class LLMFactory:
@@ -16,7 +17,7 @@ class LLMFactory:
         """
         
         return ChatGoogleGenerativeAI(
-            model="gemini-3.6-flash",
+            model="gemini-3.5-flash",
             google_api_key=settings.google_api_key,
             temperature=temperature,
             max_tokens=2048,
@@ -46,4 +47,16 @@ class LLMFactory:
         """
         print("  ⚙️ [Factory] Instanciando SLM de Segurança (Llama Guard 3 1B)...")
         return ChatOllama(model="llama-guard3:1b", temperature=temperature)
+    
+    @staticmethod
+    def get_embeddings_model():
+        """
+        Retorna o modelo de Embeddings para vetorização de texto.
+        Usamos o nomic-embed-text via Ollama (Custo $0, execução local).
+        """
+        print("  ⚙️ [Factory] Instanciando Modelo de Embeddings (Nomic)...")
+        return OllamaEmbeddings(
+            model="nomic-embed-text:latest",
+            base_url=settings.ollama_base_url,
+        )
         

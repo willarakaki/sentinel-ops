@@ -92,6 +92,26 @@ def run_graph_tests():
     # Ao executar, o fluxo DEVE parar no WAF e ir direto para o Interrupt (human_review)
     format_stream_output(sentinel_app.stream(input_4, config=config_4))
     
+    # ==========================================
+    # CASO 5: VALIDAÇÃO FINOPS (Semantic Cache HIT)
+    # ==========================================
+    print("\n--- [TESTE 5: O Poder do Cache Semântico (FinOps Extremo)] ---")
+    
+    # Novo thread_id para forçar um fluxo do zero
+    config_5 = {"configurable": {"thread_id": "TKT-1003-B"}}
+    
+    # Texto linguisticamente diferente do Teste 3, mas semanticamente idêntico.
+    input_5 = {
+        "messages": [HumanMessage(content="Olá, sou a Maria. CPF 987.654.321-11. Comprei 2 combos agora pouco, mas faltou a batata grande e o molho. Exijo reembolso parcial disso.")],
+        "ticket_id": "TKT-1003",
+        "customer_id": "CUST-HBR",
+        "dispute_amount": 80.00
+    }
+    
+    # O fluxo DEVE entrar no Investigador, extrair as evidências, bater no FAISS
+    # e retornar o laudo instantaneamente, poupando a requisição de nuvem.
+    format_stream_output(sentinel_app.stream(input_5, config=config_5))
+    
     print("=== TESTES DE INTEGRAÇÃO CONCLUÍDOS ===")
 
 if __name__ == "__main__":
