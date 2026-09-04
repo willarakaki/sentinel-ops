@@ -4,6 +4,7 @@ import duckdb
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.prebuilt import ToolNode
+from langchain_core.messages import AIMessage
 
 # Importações do nosso ecossistema
 from sentinel.schemas.state import DisputeState
@@ -26,6 +27,14 @@ def human_review_node(state: DisputeState) -> dict:
     print("--- [NÓ: REVISÃO MANUAL (Analista Sênior)] ---")
     return {"human_in_the_loop_required": True}
 
+def out_of_scope_node(state: DisputeState) -> dict:
+    """Nó de bloqueio para perguntas que não são sobre delivery. Custo zero."""
+    print("--- [NÓ: GUARDRAIL TÓPICO (Fora de Escopo)] ---")
+    return {
+        "recommended_action": "bloqueio_topico",
+        "human_in_the_loop_required": False,
+        "messages": [AIMessage(content="🛡️ **Bloqueio de Escopo:** Sou o SentinelOps, um assistente exclusivo para resolução de disputas financeiras e logísticas de delivery. Não posso responder a perguntas sobre outros assuntos.")]
+    }
 # ==========================================
 # 2. LÓGICA DE ROTEAMENTO (CORRIGIDA)
 # ==========================================
@@ -47,6 +56,13 @@ def route_after_triage(state: DisputeState) -> str:
     Roteador Híbrido com Deep Data Hydration.
     """
     print("--- [ROTEADOR: Hidratação Profunda de Dados] ---")
+    
+    intent = state.get("intent", "").lower()
+    
+    # 0. REGRA DE GUARDRAIL TÓPICO (Interceptação imediata)
+    if intent == "fora_de_escopo":
+        print(" >> 🛡️ GUARDRAIL: Assunto fora de escopo. Bloqueando chamada para nuvem.")
+        return "out_of_scope"
     
     customer_id = state.get("customer_id")
     ticket_id = state.get("ticket_id")
@@ -113,6 +129,7 @@ def build_graph():
     workflow.add_node("investigator", investigator_node)
     workflow.add_node("auto_refund", auto_refund_node)
     workflow.add_node("human_review", human_review_node)
+    workflow.add_node("out_of_scope", out_of_scope_node)
     
     db_tools = [get_delivery_telemetry, get_customer_history]
     workflow.add_node("tools", ToolNode(db_tools))
@@ -135,7 +152,8 @@ def build_graph():
         {
             "auto_refund": "auto_refund",
             "investigator": "investigator",
-            "human_review": "human_review"
+            "human_review": "human_review",
+            "out_of_scope": "out_of_scope"
         }
     )
     
@@ -151,6 +169,7 @@ def build_graph():
     
     workflow.add_edge("auto_refund", END)
     workflow.add_edge("human_review", END)
+    workflow.add_edge("out_of_scope", END)
     
     conn = sqlite3.connect("data/checkpoints.sqlite", check_same_thread=False)
     memory = SqliteSaver(conn)

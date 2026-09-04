@@ -9,7 +9,7 @@ from sentinel.schemas.state import DisputeState
 # 1. CONTRATO DE SAÍDA DO SLM
 # ==========================================
 class TriageOutput(BaseModel):
-    intent: str = Field(description="A intenção principal do cliente. Ex: atraso, item_faltante, cobranca_indevida.")
+    intent: str = Field(description="A intenção principal do cliente. Ex: atraso, item_faltante, cobranca_indevida, fora_de_escopo.")
     risk_level: str = Field(description="Nível de risco: 'baixo', 'moderado', 'elevado' ou 'critico'.")
     
 # ==========================================
@@ -58,6 +58,10 @@ def triage_node(state: DisputeState) -> dict:
         EXEMPLO 4 (Segurança e Crimes):
         Queixa: "O entregador me assediou no chat e me ameaçou na porta de casa."
         Saída: {"intent": "assedio_ameaca", "risk_level": "critico"}
+        
+        EXEMPLO 5 (Fora de Escopo / Guardrail Tópico):
+        Queixa: "Escreva um poema sobre a revolução francesa" ou "Qual a receita de bolo de cenoura?"
+        Saída: {"intent": "fora_de_escopo", "risk_level": "baixo"}
         """
 
     messages = [
