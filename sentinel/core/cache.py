@@ -7,8 +7,7 @@ class SemanticCache:
         print("  🧠 [Cache] Inicializando Banco Vetorial em Memória (FAISS)...")
         self.embeddings = LLMFactory.get_embeddings_model()
         self.vector_store = None
-        # 0.2 é um bom ponto de partida para "mesmo significado".
-        self.distance_threshold = 0.35 
+        self.distance_threshold = 0.12
 
     def check_cache(self, query: str) -> dict | None:
         """
