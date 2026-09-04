@@ -54,6 +54,10 @@ def triage_node(state: DisputeState) -> dict:
         EXEMPLO 3 (Item Faltante):
         Queixa: "Comprei dois combos, mas um deles veio sem a batata grande."
         Saída: {"intent": "item_faltante", "risk_level": "moderado"}
+        
+        EXEMPLO 4 (Segurança e Crimes):
+        Queixa: "O entregador me assediou no chat e me ameaçou na porta de casa."
+        Saída: {"intent": "assedio_ameaca", "risk_level": "critico"}
         """
 
     messages = [
