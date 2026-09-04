@@ -19,8 +19,20 @@ if "thread_id" not in st.session_state:
 # Barra lateral para simular os metadados do Ticket (Injetados pelo sistema na vida real)
 with st.sidebar:
     st.header("Metadados do Ticket")
-    ticket_id = st.text_input("ID do Ticket", value="TKT-UI-001")
-    customer_id = st.text_input("ID do Cliente", value="CUST-HBR")
+    
+    # Substituímos text_input por selectbox para blindar a demonstração (Prevenção de Erro Humano)
+    ticket_id = st.selectbox(
+        "ID do Ticket (Telemetria)", 
+        options=["TKT-UI-001", "TKT-UI-002", "TKT-UI-003"],
+        help="001: Atraso simples | 002: Fraude de GPS (5km) | 003: Item faltante com Foto/OTP"
+    )
+    
+    customer_id = st.selectbox(
+        "ID do Cliente (Risco)", 
+        options=["CUST-VIP", "CUST-HBR", "CUST-FRAUD"],
+        help="VIP: 5 anos/Risco Baixo | HBR: Normal/Risco Médio | FRAUD: Conta Nova/Risco Alto"
+    )
+    
     dispute_amount = st.number_input("Valor em Disputa (R$)", value=80.00, step=10.0)
     
     if st.button("🔄 Resetar Sessão"):
