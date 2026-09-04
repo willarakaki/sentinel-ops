@@ -1,5 +1,6 @@
 import os
 import sqlite3
+import duckdb
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.prebuilt import ToolNode
@@ -30,28 +31,63 @@ def human_review_node(state: DisputeState) -> dict:
 # ==========================================
 def route_after_triage(state: DisputeState) -> str:
     """
-    Lê o Estado após a triagem e decide o próximo nó baseado
-    na nossa Matriz de Regras de Negócio (YAML).
+    Roteador Híbrido: Cruza a Intenção Semântica (LLM) 
+    com o Score de Risco Determinístico (DuckDB).
     """
-    print("--- [ROTEADOR: Avaliando Risco e Valor] ---")
+    print("--- [ROTEADOR: Hidratação de Dados e Avaliação] ---")
     
-    risk = state.get("risk_level")
+    customer_id = state.get("customer_id")
     amount = state.get("dispute_amount", 0.0)
     
-    # 1. Regra de Defesa (Risco Elevado/Crítico ou falha na classificação)
-    if risk in ["elevado", "critico", "classificacao_falhou"]:
-        print(">> Roteando para: REVISÃO HUMANA (Risco Crítico/Falha)")
+    # O risco que o LLM "achou" lendo apenas o texto (Probabilístico)
+    llm_risk = state.get("risk_level", "elevado").lower()
+    
+    # 1. DATA HYDRATION: Busca o Risco Real (Determinístico) no DuckDB
+    db_path = os.path.join(os.getcwd(), "data", "sentinel.duckdb")
+    db_risk = "high" # Fail-safe: Se falhar a conexão, assumimos risco alto por segurança
+    
+    try:
+        with duckdb.connect(db_path, read_only=True) as conn:
+            result = conn.execute("SELECT risk_score FROM customer_profiles WHERE customer_id = ?", [customer_id]).fetchone()
+            if result:
+                db_risk = result[0].lower() # Pega 'low', 'medium' ou 'high' do banco
+    except Exception as e:
+        print(f" ⚠️ Erro ao buscar risco no banco: {e}")
+        
+    print(f" >> Risco Semântico (LLM): {llm_risk} | Risco Real (DB): {db_risk}")
+    
+    # 2. Regra de Defesa em Profundidade
+    # Se o banco diz que o cliente é HIGH, ou o LLM percebeu uma intenção crítica (ex: ameaça de processo)
+    if db_risk == "high" or llm_risk in ["critico", "classificacao_falhou"]:
+        print(" >> Roteando para: REVISÃO HUMANA (Defesa Acionada)")
         return "human_review"
         
-    # 2. Regra FinOps (Auto-Refund)
+    # 3. Regra FinOps e CX (Customer Experience)
+    # Se o banco garante que o cliente é LOW (VIP) e o valor é baixo, não importa o que o LLM achou.
     micro_max = dispute_rules.tiers["micro"].max_value
-    if risk == "baixo" and amount <= micro_max:
-        print(f">> Roteando para: AUTO REFUND (Valor {amount} <= Limite {micro_max})")
+    if db_risk == "low" and amount <= micro_max:
+        print(f" >> Roteando para: AUTO REFUND (Cliente VIP: Valor {amount} <= Limite {micro_max})")
         return "auto_refund"
         
-    # 3. Caminho Padrão (Investigação Profunda)
-    print(">> Roteando para: INVESTIGADOR (Análise Complexa de Telemetria)")
+    # 4. Caminho Padrão (Score Medium ou Valores mais altos)
+    print(" >> Roteando para: INVESTIGADOR (Análise Complexa de Telemetria)")
     return "investigator"
+
+def route_after_security(state: DisputeState) -> str:
+    """Aplica regras determinísticas elegíveis antes de chamar o SLM de triagem."""
+    if state.get("recommended_action") == "bloqueio_seguranca":
+        print(">> Roteando para: REVISÃO HUMANA (Bloqueio de segurança)")
+        return "human_review"
+
+    customer_id = state.get("customer_id", "").strip().upper()
+    amount = state.get("dispute_amount", 0.0)
+    micro_max = dispute_rules.tiers["micro"].max_value
+
+    if customer_id == "CUST-VIP" and amount <= micro_max:
+        print(">> Roteando para: AUTO REFUND (Cliente VIP e valor micro)")
+        return "auto_refund"
+
+    return "triage"
 
 def route_investigator(state: DisputeState) -> str:
     """
@@ -97,10 +133,11 @@ def build_graph():
     
     workflow.add_conditional_edges(
         "security_shield",
-        route_security,
+        route_after_security,
         {
-            "human_review": "human_review", # Vai para fraude
-            "triage": "triage"              # Vai para o negócio
+            "auto_refund": "auto_refund",
+            "triage": "triage",
+            "human_review": "human_review"
         }
     )
     
