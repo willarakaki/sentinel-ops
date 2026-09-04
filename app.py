@@ -29,6 +29,34 @@ def override_ticket_mock_value(ticket_id: str, raw_json_str: str):
             conn.execute("UPDATE delivery_telemetry SET order_items_json = ? WHERE ticket_id = ?", [raw_json_str, ticket_id])
     except Exception as e:
         st.error(f"Erro ao mockar BD: {e}")
+        
+# --- CALLBACKS PARA O CARRINHO DO SANDBOX ---
+def add_sandbox_item():
+    """Valida e adiciona um novo item ao recibo do Sandbox."""
+    name = st.session_state.new_item_name.strip()
+    price = st.session_state.new_item_price
+    
+    if not name:
+        st.toast("⚠️ O nome do produto não pode estar vazio!", icon="❌")
+        return
+    if price <= 0:
+        st.toast("⚠️ O preço deve ser maior que zero!", icon="❌")
+        return
+        
+    st.session_state.sandbox_receipt.append({
+        "id": str(uuid.uuid4()), 
+        "item": name, 
+        "price": price
+    })
+    # Limpa os campos após adicionar
+    st.session_state.new_item_name = ""
+    st.session_state.new_item_price = 0.0
+
+def remove_sandbox_item(item_id):
+    """Remove um item do recibo baseado no ID único."""
+    st.session_state.sandbox_receipt = [
+        item for item in st.session_state.sandbox_receipt if item["id"] != item_id
+    ]
 
 # ---------------------------------------------------------
 # 1. CONFIGURAÇÃO DA PÁGINA E ESTADO
@@ -36,10 +64,16 @@ def override_ticket_mock_value(ticket_id: str, raw_json_str: str):
 st.set_page_config(page_title="SentinelOps | AI Loss Prevention", page_icon="🛡️", layout="wide")
 st.title("🛡️ SentinelOps: Resolução Autônoma")
 
-# Inicializa o estado da sessão (Memória do Frontend)
 if "thread_id" not in st.session_state:
-    st.session_state.thread_id = str(uuid.uuid4()) # ID único para a sessão do LangGraph
-    st.session_state.chat_history = []             # Histórico visual da tela
+    st.session_state.thread_id = str(uuid.uuid4())
+    st.session_state.chat_history = []
+    
+# Inicializa o Carrinho do Sandbox com dados padrão
+if "sandbox_receipt" not in st.session_state:
+    st.session_state.sandbox_receipt = [
+        {"id": str(uuid.uuid4()), "item": "Combo Família Mega", "price": 390.00},
+        {"id": str(uuid.uuid4()), "item": "Refrigerante 2L", "price": 10.00}
+    ]
 
 # Barra lateral para simular os metadados do Ticket (Injetados pelo sistema na vida real)
 with st.sidebar:
@@ -105,26 +139,45 @@ with st.sidebar:
         else:
             st.info("Nenhum item registrado neste ticket.")
     
-    sandbox_mode = st.toggle("🧪 Modo Sandbox (Testes Livres)", value=False, help="Destrava a edição do Recibo JSON para testar cenários extremos de estorno parcial.")
+    sandbox_mode = st.toggle("🧪 Modo Sandbox (Testes Livres)", value=False, help="Destrava a edição do Recibo para testar cenários extremos de estorno parcial.")
+    
+    sandbox_mode = st.toggle("🧪 Modo Sandbox (Testes Livres)", value=False, help="Adicione ou remova itens do pedido para testar cálculos de estorno parcial.")
     
     if sandbox_mode:
-        st.warning("🔧 **Edite o Recibo (JSON)** para simular o pedido:")
-        default_sandbox_json = """[
-                {"item": "Combo Família Mega", "price": 390.00},
-                {"item": "Refrigerante 2L", "price": 10.00}
-            ]"""
-        sandbox_json_str = st.text_area("Payload do Pedido", value=default_sandbox_json, height=150)
+        st.warning("🔧 **Monte o Pedido** para simular o cenário:")
         
-        try:
-            # Tenta validar o JSON e somar os preços em tempo real
-            receipt_items = json.loads(sandbox_json_str)
-            total_order_value = sum(item.get('price', 0) for item in receipt_items)
-            st.success(f"JSON Válido. Total Lido: **R$ {total_order_value:.2f}**")
-        except json.JSONDecodeError:
-            st.error("❌ Erro de sintaxe no JSON. Verifique as aspas e vírgulas.")
-            total_order_value = 0.0
-            receipt_items = []
+        # 1. Formulário de Adição (Validação na Origem)
+        with st.container(border=True):
+            st.markdown("**Adicionar Novo Item:**")
+            st.text_input("Nome do Produto", key="new_item_name", placeholder="Ex: Batata Frita")
+            st.number_input("Preço (R$)", key="new_item_price", min_value=0.0, step=5.0, format="%.2f")
+            st.button("➕ Adicionar Item", on_click=add_sandbox_item, use_container_width=True)
+        
+        # 2. Listagem dos Itens com Lixeira
+        st.markdown("**Itens Atuais:**")
+        
+        if not st.session_state.sandbox_receipt:
+            st.info("O pedido está vazio. Adicione itens acima.")
             
+        for item in st.session_state.sandbox_receipt:
+            col1, col2, col3 = st.columns([6, 3, 2]) # Proporção das colunas
+            with col1:
+                st.markdown(f"🍔 {item['item']}")
+            with col2:
+                st.markdown(f"**R$ {item['price']:.2f}**")
+            with col3:
+                # O botão chama a função de remover passando o ID do item
+                st.button("🗑️", key=f"del_{item['id']}", on_click=remove_sandbox_item, args=(item['id'],))
+        
+        # 3. Matemática Dinâmica e Preparação para o BD
+        total_order_value = sum(item['price'] for item in st.session_state.sandbox_receipt)
+        st.success(f"Total Lido: **R$ {total_order_value:.2f}**")
+        
+        # Limpamos a chave 'id' na hora de salvar no BD, pois o LLM não precisa dela
+        clean_receipt_for_db = [{"item": i["item"], "price": i["price"]} for i in st.session_state.sandbox_receipt]
+        sandbox_json_str = json.dumps(clean_receipt_for_db)
+        receipt_items = clean_receipt_for_db
+        
     else:
         # Modo Normal (Golden Dataset - Leitura Direta do DuckDB)
         receipt_items = get_ticket_receipt_for_ui(ticket_id)
@@ -139,7 +192,7 @@ with st.sidebar:
             else:
                 st.info("Nenhum item registrado neste ticket.")
 
-    # O campo de Disputa agora é apenas visual (reflete a soma do JSON)
+    # O campo de Disputa agora é apenas visual (reflete a soma exata da tabela ou do banco)
     dispute_amount = st.number_input(
         "Valor Total do Pedido (R$)", 
         value=float(total_order_value) if total_order_value > 0 else 80.00, 
