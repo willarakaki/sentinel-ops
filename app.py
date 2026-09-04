@@ -17,20 +17,55 @@ if "thread_id" not in st.session_state:
     st.session_state.chat_history = []             # Histórico visual da tela
 
 # Barra lateral para simular os metadados do Ticket (Injetados pelo sistema na vida real)
+# Barra lateral para simular os metadados do Ticket (Injetados pelo sistema na vida real)
 with st.sidebar:
     st.header("Metadados do Ticket")
     
-    # Substituímos text_input por selectbox para blindar a demonstração (Prevenção de Erro Humano)
+    # 1. Menu de Ajuda em Markdown para os Tickets
+    help_ticket = """
+    **Guia de Cenários de Telemetria:**
+    - **TKT-UI-001:** Atraso simples (Honesto)
+    - **TKT-UI-002:** Fraude de GPS (5km de distância)
+    - **TKT-UI-003:** Item faltante (Com foto e OTP)
+    - **TKT-UI-004:** Alergênico / Risco à saúde
+    - **TKT-UI-005:** Assédio (Print no chat)
+    - **TKT-UI-006:** Golpe da foto preta (Falso entregue)
+    - **TKT-UI-007:** Produto danificado (Vazou tudo)
+    - **TKT-UI-008:** Cliente Ausente (No-Show de 12min)
+    - **TKT-UI-009:** Endereço Incorreto (Longe)
+    - **TKT-UI-010:** Hostilidade na porta
+    - **TKT-UI-011:** Restrição de Idade (Álcool sem OTP)
+    """
+    
     ticket_id = st.selectbox(
         "ID do Ticket (Telemetria)", 
-        options=["TKT-UI-001", "TKT-UI-002", "TKT-UI-003"],
-        help="001: Atraso simples | 002: Fraude de GPS (5km) | 003: Item faltante com Foto/OTP"
+        options=[
+            "TKT-UI-001", "TKT-UI-002", "TKT-UI-003", "TKT-UI-004",
+            "TKT-UI-005", "TKT-UI-006", "TKT-UI-007", "TKT-UI-008",
+            "TKT-UI-009", "TKT-UI-010", "TKT-UI-011"
+        ],
+        help=help_ticket
     )
+    
+    # 2. Menu de Ajuda em Markdown para os Clientes
+    help_customer = """
+    **Perfis de Comportamento:**
+    - **CUST-VIP:** 5 anos, LTV gigante, Risco Baixo
+    - **CUST-HBR:** Cliente Normal, Risco Médio
+    - **CUST-FRAUD:** Conta nova, Risco Alto
+    - **CUST-NEW:** Conta nova promissora (Gasta bem)
+    - **CUST-CHURN:** Reincidente insatisfeito (Risco de saída)
+    - **CUST-ABUSER:** Caçador de reembolso (Alto No-Show)
+    - **CUST-B2B:** Conta Corporativa (Alto volume)
+    """
     
     customer_id = st.selectbox(
         "ID do Cliente (Risco)", 
-        options=["CUST-VIP", "CUST-HBR", "CUST-FRAUD"],
-        help="VIP: 5 anos/Risco Baixo | HBR: Normal/Risco Médio | FRAUD: Conta Nova/Risco Alto"
+        options=[
+            "CUST-VIP", "CUST-HBR", "CUST-FRAUD", 
+            "CUST-NEW", "CUST-CHURN", "CUST-ABUSER", "CUST-B2B"
+        ],
+        help=help_customer
     )
     
     dispute_amount = st.number_input("Valor em Disputa (R$)", value=80.00, step=10.0)
