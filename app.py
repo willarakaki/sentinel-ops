@@ -38,15 +38,14 @@ for msg in st.session_state.chat_history:
 # ---------------------------------------------------------
 # 3. INTERAÇÃO E INVOCAÇÃO DO LANGGRAPH
 # ---------------------------------------------------------
+config = {"configurable": {"thread_id": st.session_state.thread_id}}
+
 if prompt := st.chat_input("Descreva o seu problema com o pedido..."):
-    
-    # Renderiza a queixa do cliente na tela imediatamente
+    # Renderiza a queixa do cliente na tela
     st.session_state.chat_history.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # Prepara o payload para o SentinelOps (Backend)
-    config = {"configurable": {"thread_id": st.session_state.thread_id}}
     input_data = {
         "messages": [HumanMessage(content=prompt)],
         "ticket_id": ticket_id,
@@ -54,43 +53,57 @@ if prompt := st.chat_input("Descreva o seu problema com o pedido..."):
         "dispute_amount": dispute_amount
     }
 
-    # Aciona o Orquestrador e captura a resposta final
+    # Aciona o Orquestrador
     with st.chat_message("assistant"):
-        
-        # 1. STREAMING DO RACIOCÍNIO (Fim da tela congelada)
         with st.status("Iniciando investigação autônoma...", expanded=True) as status:
             for event in sentinel_app.stream(input_data, config=config):
-                # O LangGraph retorna um dicionário com o nome do nó que acabou de rodar
                 for node_name, node_state in event.items():
                     st.write(f"⚙️ Passo concluído: **{node_name.upper()}**")
-            
-            # Atualiza o status quando o grafo terminar
-            status.update(label="Investigação concluída!", state="complete", expanded=False)
+            status.update(label="Processamento pausado ou concluído.", state="complete", expanded=False)
+        st.rerun() # Força a tela a recarregar para desenhar os botões de HITL se necessário
 
-        # 2. EXTRAÇÃO DO ESTADO FINAL
-        final_state = sentinel_app.get_state(config).values
-        action = final_state.get("recommended_action", "")
-        
-        final_response_text = ""
-        
-        # 3. RENDERIZAÇÃO VISUAL RICA (A2UI)
-        if action == "bloqueio_seguranca":
-            st.error("🚨 **ALERTA DE SEGURANÇA (AI WAF)**\n\nTentativa de manipulação semântica ou ataque cibernético detectado. O tráfego foi bloqueado e o incidente foi reportado à equipe de Fraudes.")
-            final_response_text = "[Sistema]: Bloqueio de Segurança."
-            
-        elif action == "auto_refund":
-            st.success("✅ **REEMBOLSO APROVADO IMEDIATAMENTE**\n\nA triagem classificou o caso como de baixo risco. O estorno foi processado sem necessidade de intervenção humana.")
-            final_response_text = "[Sistema]: Reembolso automático aprovado."
-            
-        else:
-            # Caso caia no Investigador (Gemini) ou Revisão Humana
-            st.info(f"🔍 **PARECER DA INVESTIGAÇÃO (Ação recomendada: {action})**")
-            if final_state.get("messages"):
-                final_response_text = final_state["messages"][-1].content
-                st.markdown(final_response_text)
-            else:
-                final_response_text = "Nenhuma justificativa textual gerada."
-                st.markdown(final_response_text)
+# ---------------------------------------------------------
+# 4. GESTÃO DE ESTADO E HITL INTERATIVO (NOVO)
+# ---------------------------------------------------------
+# Lemos a "fotografia" atual da memória do LangGraph
+snapshot = sentinel_app.get_state(config)
 
-        # Salva o resumo no histórico visual para a tela não bugar ao dar refresh
-        st.session_state.chat_history.append({"role": "assistant", "content": final_response_text})
+# Se a tupla 'next' tiver algo, o grafo está pausado aguardando o Humano
+if snapshot.next:
+    st.warning("⚠️ **INTERVENÇÃO HUMANA REQUERIDA**")
+    st.info("O agente de IA escalou este ticket devido à complexidade, risco ou suspeita de fraude. Por favor, decida a ação final.")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("✅ Aprovar Estorno Manualmente", use_container_width=True):
+            # 1. Injeta a decisão na memória do grafo
+            sentinel_app.update_state(config, {"recommended_action": "Aprovado por Operador Humano"})
+            # 2. Manda o grafo continuar do ponto que parou (passando None)
+            for event in sentinel_app.stream(None, config=config):
+                pass
+            st.rerun()
+            
+    with col2:
+        if st.button("❌ Negar Estorno Manualmente", use_container_width=True):
+            sentinel_app.update_state(config, {"recommended_action": "Negado por Operador Humano"})
+            for event in sentinel_app.stream(None, config=config):
+                pass
+            st.rerun()
+
+# Se não há mais nós na fila (snapshot.next está vazio) E temos mensagens no estado, o processo acabou.
+elif snapshot.values.get("recommended_action"):
+    action = snapshot.values.get("recommended_action", "")
+    
+    # Renderização visual rica baseada na ação final (Autônoma ou Humana)
+    st.markdown("---")
+    if action == "bloqueio_seguranca":
+        st.error("🚨 **ALERTA DE SEGURANÇA (AI WAF)**\n\nTentativa de manipulação detectada. Tráfego bloqueado.")
+    elif action == "auto_refund":
+        st.success("✅ **REEMBOLSO APROVADO IMEDIATAMENTE (Autônomo)**\n\nCaso de baixo risco. Estorno processado sem intervenção humana.")
+    elif "Operador Humano" in action:
+        st.info(f"👤 **DECISÃO HUMANA EXECUTADA**\n\nResultado final: {action}")
+    else:
+        st.info(f"🔍 **PARECER DA INVESTIGAÇÃO AUTÔNOMA**\n\nAção recomendada: **{action}**")
+        if snapshot.values.get("messages"):
+            st.markdown(snapshot.values["messages"][-1].content)

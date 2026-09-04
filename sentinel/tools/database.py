@@ -54,7 +54,7 @@ def get_customer_history(customer_id: str) -> str:
         with duckdb.connect(str(DB_PATH), read_only=True) as conn:
             query = """
                 SELECT account_age_days, previous_disputes, risk_score
-                FROM customers
+                FROM customer_profiles
                 WHERE customer_id = ?
             """
             result = conn.execute(query, [customer_id]).fetchone()

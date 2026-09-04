@@ -1,7 +1,9 @@
+import os
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_ollama import ChatOllama
 from langchain_community.embeddings import OllamaEmbeddings
 from config.settings import settings
+
 
 class LLMFactory:
     """
@@ -46,7 +48,10 @@ class LLMFactory:
         Otimizado para rodar junto com o Llama 3.2 na VRAM de 8GB.
         """
         print("  ⚙️ [Factory] Instanciando SLM de Segurança (Llama Guard 3 1B)...")
-        return ChatOllama(model="llama-guard3:1b", temperature=temperature)
+        return ChatOllama(model="llama-guard3:1b",
+                            temperature=temperature,
+                            base_url=settings.ollama_base_url
+                            )
     
     @staticmethod
     def get_embeddings_model():
