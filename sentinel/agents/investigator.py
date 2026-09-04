@@ -9,11 +9,13 @@ from sentinel.core.privacy import mask_pii
 from sentinel.core.cache import semantic_cache
 
 # ==========================================
-# 1. CONTRATO DE SAÍDA
+# 1. CONTRATO DE SAÍDA (EVOLUÇÃO FINOPS)
 # ==========================================
 class InvestigatorOutput(BaseModel):
     """Use esta ferramenta APENAS para submeter o veredito final após coletar evidências."""
     recommended_action: str = Field(description="'aprovar_reembolso', 'negar_disputa', ou 'escalar_humano'.")
+    approved_refund_amount: float = Field(description="Valor exato a estornar. 0.0 se negado, valor parcial se faltou só um item, ou total se perda total.")
+    liability: str = Field(description="Quem assume o prejuízo: 'restaurante', 'entregador', 'plataforma', ou 'nenhum' (se negado).")
     justification: str = Field(description="Justificativa técnica baseada na telemetria.")
     human_in_the_loop_required: bool = Field(description="True se a decisão for inconclusiva ou suspeita.")
 
@@ -101,6 +103,7 @@ def investigator_node(state: DisputeState) -> dict:
             - REGRA 2 (PROTEÇÃO AO TRABALHADOR): Se o tempo de espera do entregador for elevado (ex: > 5 a 10 min) e o pedido não foi entregue, a culpa é do cliente (No-Show). NEGUE o reembolso para proteger o tempo do motoboy.
             - REGRA 3 (ABUSO SISTEMÁTICO): Se o cliente possui um histórico de múltiplas "Ausências na entrega (No-Show)" ou alta taxa de estornos anteriores, trate como Fraude Sistêmica. NEGUE o reembolso mesmo que a evidência atual seja inconclusiva.
             - REGRA 4 (RETENÇÃO E LTV): Se o cliente possui um alto Lifetime Value (ex: LTV > R$ 5000), tipo de conta B2B ou baixo histórico de disputas, E o entregador não validou OTP ou há indícios de dano, priorize a experiência do cliente. APROVE o reembolso justificando o valor histórico do cliente.
+            - REGRA 5 (REEMBOLSO PARCIAL E LIABILITY): Se o cliente reclama de UM item faltante, aprove o estorno APENAS do valor daquele item, e atribua a culpa (liability) ao 'restaurante'. Se a queixa for sobre a entrega/transporte, a culpa é do 'entregador' ou 'plataforma'. Se a queixa for negada, liability é 'nenhum' e o valor é 0.0.
 
             🛡️ ANCORAGEM ESTRITA (GROUNDING):
             Baseie sua justificativa EXCLUSIVAMENTE nos dados retornados pelas ferramentas. É PROIBIDO presumir, inventar ou mencionar evidências (fotos, assinaturas, conversas) que NÃO estejam explicitamente listadas no retorno do banco.
@@ -122,12 +125,20 @@ def investigator_node(state: DisputeState) -> dict:
             # ---------------------------------------------------------
             if tool_responses:
                 cache_key = semantic_cache.build_cache_key(masked_query, evidence_text)
+                # Opcional: No futuro você pode salvar o liability no cache também
                 semantic_cache.save_to_cache(cache_key, args["recommended_action"], args["justification"])
             
+            # Formatando a resposta rica para a Interface (A2UI)
+            parecer_final = (
+                f"Parecer Baseado em Dados: {args['justification']}\n\n"
+                f"💰 **Valor Aprovado:** R$ {args['approved_refund_amount']:.2f}\n"
+                f"⚖️ **Responsabilidade (Liability):** {args['liability'].upper()}"
+            )
+
             return {
                 "recommended_action": args["recommended_action"],
                 "human_in_the_loop_required": args["human_in_the_loop_required"],
-                "messages": [AIMessage(content=f"Parecer Baseado em Dados: {args['justification']}")]
+                "messages": [AIMessage(content=parecer_final)]
             }
         
         print(f"[AÇÃO DO AGENTE] Solicitando busca de dados: {[t['name'] for t in response.tool_calls]}")
