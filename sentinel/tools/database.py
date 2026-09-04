@@ -3,7 +3,7 @@ from pathlib import Path
 from langchain_core.tools import tool
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
-DB_PATH = BASE_DIR / "data" / "telemetry.duckdb"
+DB_PATH = BASE_DIR / "data" / "sentinel.duckdb"
 
 # ==========================================
 # 1. FERRAMENTA: TELEMETRIA LOGÍSTICA
