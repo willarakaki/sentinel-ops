@@ -50,7 +50,7 @@ def seed_database():
     
     # --- DADOS DE TELEMETRIA ---
     # Payloads JSON convertidos em strings de forma segura
-    json_tkt_001 = json.dumps([{"item": "Pizza Margherita", "price": 370.00}])
+    json_tkt_001 = json.dumps([{"item": "Pizza Margherita", "price": 70.00}])
     json_tkt_002 = json.dumps([{"item": "Combo Sushi Premium", "price": 500.00}])
     json_tkt_003 = json.dumps([{"item": "Hambúrguer Artesanal Duplo", "price": 65.00}, {"item": "Batata Frita Grande", "price": 15.00}]) # Total 80
     json_tkt_004 = json.dumps([{"item": "Prato Vegano", "price": 50.00}])

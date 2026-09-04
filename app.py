@@ -139,8 +139,6 @@ with st.sidebar:
         else:
             st.info("Nenhum item registrado neste ticket.")
     
-    sandbox_mode = st.toggle("🧪 Modo Sandbox (Testes Livres)", value=False, help="Destrava a edição do Recibo para testar cenários extremos de estorno parcial.")
-    
     sandbox_mode = st.toggle("🧪 Modo Sandbox (Testes Livres)", value=False, help="Adicione ou remova itens do pedido para testar cálculos de estorno parcial.")
     
     if sandbox_mode:
