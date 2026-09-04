@@ -20,17 +20,15 @@ def get_ticket_receipt_for_ui(ticket_id: str):
         st.sidebar.error(f"Erro ao ler recibo: {e}")
     return []
 
-# --- FUNÇÃO HELPER PARA QA (Dynamic Mocking) ---
-def override_ticket_mock_value(ticket_id: str, new_amount: float):
-    """Substitui o JSON do banco de dados temporariamente para testes de estresse (Sandbox)."""
+# --- FUNÇÃO HELPER PARA QA (Payload Injection) ---
+def override_ticket_mock_value(ticket_id: str, raw_json_str: str):
+    """Substitui o JSON do banco com a exata string fornecida pelo testador."""
     db_path = os.path.join(os.getcwd(), "data", "sentinel.duckdb")
-    mock_json = json.dumps([{"item": "Item Customizado (Modo Sandbox)", "price": new_amount}])
     try:
-        # Abre conexão de escrita para atualizar o valor
         with duckdb.connect(db_path) as conn:
-            conn.execute("UPDATE delivery_telemetry SET order_items_json = ? WHERE ticket_id = ?", [mock_json, ticket_id])
+            conn.execute("UPDATE delivery_telemetry SET order_items_json = ? WHERE ticket_id = ?", [raw_json_str, ticket_id])
     except Exception as e:
-        st.error(f"Erro ao mockar banco de dados: {e}")
+        st.error(f"Erro ao mockar BD: {e}")
 
 # ---------------------------------------------------------
 # 1. CONFIGURAÇÃO DA PÁGINA E ESTADO
@@ -107,14 +105,46 @@ with st.sidebar:
         else:
             st.info("Nenhum item registrado neste ticket.")
     
-    # NOVO: O interruptor que separa os "Meninos dos Homens" na QA
-    sandbox_mode = st.toggle("🧪 Modo Sandbox (Testes Livres)", value=False, help="Destrava o valor para testar o roteamento FinOps e HITL com valores customizados.")
+    sandbox_mode = st.toggle("🧪 Modo Sandbox (Testes Livres)", value=False, help="Destrava a edição do Recibo JSON para testar cenários extremos de estorno parcial.")
     
+    if sandbox_mode:
+        st.warning("🔧 **Edite o Recibo (JSON)** para simular o pedido:")
+        default_sandbox_json = """[
+                {"item": "Combo Família Mega", "price": 390.00},
+                {"item": "Refrigerante 2L", "price": 10.00}
+            ]"""
+        sandbox_json_str = st.text_area("Payload do Pedido", value=default_sandbox_json, height=150)
+        
+        try:
+            # Tenta validar o JSON e somar os preços em tempo real
+            receipt_items = json.loads(sandbox_json_str)
+            total_order_value = sum(item.get('price', 0) for item in receipt_items)
+            st.success(f"JSON Válido. Total Lido: **R$ {total_order_value:.2f}**")
+        except json.JSONDecodeError:
+            st.error("❌ Erro de sintaxe no JSON. Verifique as aspas e vírgulas.")
+            total_order_value = 0.0
+            receipt_items = []
+            
+    else:
+        # Modo Normal (Golden Dataset - Leitura Direta do DuckDB)
+        receipt_items = get_ticket_receipt_for_ui(ticket_id)
+        total_order_value = sum(item['price'] for item in receipt_items) if receipt_items else 0.0
+        
+        with st.expander("🧾 Cupom Fiscal (BD Atual)", expanded=True):
+            if receipt_items:
+                for item in receipt_items:
+                    st.write(f"- {item['item']}: **R$ {item['price']:.2f}**")
+                st.markdown("---")
+                st.write(f"**TOTAL DO PEDIDO:** R$ {total_order_value:.2f}")
+            else:
+                st.info("Nenhum item registrado neste ticket.")
+
+    # O campo de Disputa agora é apenas visual (reflete a soma do JSON)
     dispute_amount = st.number_input(
-        "Valor Total (Preenchido via BD)", 
+        "Valor Total do Pedido (R$)", 
         value=float(total_order_value) if total_order_value > 0 else 80.00, 
         step=10.0,
-        disabled=not sandbox_mode # Travado se Sandbox=False, Destravado se Sandbox=True
+        disabled=True
     )
     
     if st.button("🔄 Resetar Sessão", use_container_width=True):
@@ -135,9 +165,9 @@ config = {"configurable": {"thread_id": st.session_state.thread_id}}
 
 if prompt := st.chat_input("Descreva o seu problema com o pedido..."):
     
-    # sandbox
-    if sandbox_mode:
-        override_ticket_mock_value(ticket_id, dispute_amount)
+    # SE o modo Sandbox estiver ligado e o JSON for válido, sobrescrevemos o banco AGORA
+    if sandbox_mode and receipt_items:
+        override_ticket_mock_value(ticket_id, sandbox_json_str)
     
     # Renderiza a queixa do cliente na tela
     st.session_state.chat_history.append({"role": "user", "content": prompt})
