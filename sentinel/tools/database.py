@@ -1,4 +1,5 @@
 import duckdb
+import json
 from pathlib import Path
 from langchain_core.tools import tool
 
@@ -10,11 +11,7 @@ DB_PATH = BASE_DIR / "data" / "sentinel.duckdb"
 # ==========================================
 @tool
 def get_delivery_telemetry(ticket_id: str) -> str:
-    """
-    Busca os dados de telemetria de uma entrega usando o ticket_id.
-    Retorna distâncias, senhas (OTP), fotos, restrição de idade e tempo de espera.
-    USE ESTA FERRAMENTA SEMPRE que precisar investigar a logística do pedido.
-    """
+    """Busca os dados logísticos de uma entrega."""
     try:
         with duckdb.connect(str(DB_PATH), read_only=True) as conn:
             query = """
@@ -23,7 +20,8 @@ def get_delivery_telemetry(ticket_id: str) -> str:
                     has_photo_proof, 
                     otp_validated, 
                     is_age_restricted, 
-                    driver_waiting_time_minutes
+                    driver_waiting_time_minutes,
+                    order_items_json
                 FROM delivery_telemetry
                 WHERE ticket_id = ?
             """
@@ -32,16 +30,24 @@ def get_delivery_telemetry(ticket_id: str) -> str:
             if not result:
                 return f"Nenhuma telemetria encontrada para o ticket {ticket_id}."
             
-            # Desempacotamento na exata ordem do SELECT
-            dist, photo, otp, age_restr, wait_time = result
+            dist, photo, otp, age_restr, wait_time, order_json_str = result
+            
+            receipt_formatted = "\n[RECIBO DOS ITENS DO PEDIDO]:\n"
+            try:
+                items = json.loads(order_json_str) if order_json_str else []
+                for item in items:
+                    receipt_formatted += f"  - {item['item']}: R$ {item['price']:.2f}\n"
+            except:
+                receipt_formatted += "  - Erro ao ler recibo.\n"
             
             return (
                 f"[EVIDÊNCIAS DE TELEMETRIA LOGÍSTICA] Ticket: {ticket_id}\n"
-                f"- Distância do entregador ao dar baixa: {dist} metros.\n"
-                f"- Foto anexada como prova: {'Sim' if photo else 'Não'}\n"
-                f"- Código de segurança (OTP) validado: {'Sim' if otp else 'Não'}\n"
-                f"- Requer validação de idade (Álcool/Restrito): {'Sim' if age_restr else 'Não'}\n"
-                f"- Tempo de espera do entregador na porta: {wait_time} minutos."
+                f"- Distância do entregador: {dist} metros.\n"
+                f"- Foto anexada: {'Sim' if photo else 'Não'}\n"
+                f"- OTP validado: {'Sim' if otp else 'Não'}\n"
+                f"- Restrição de idade: {'Sim' if age_restr else 'Não'}\n"
+                f"- Tempo de espera: {wait_time} min.\n"
+                f"{receipt_formatted}"
             )
     except Exception as e:
         return f"Erro ao acessar banco de telemetria: {str(e)}"
