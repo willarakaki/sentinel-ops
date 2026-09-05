@@ -26,7 +26,7 @@ class InvestigatorOutput(BaseModel):
 # Se a chamada falhar (503, 429, timeout), tenta até 4 vezes.
 # Espera 2s, depois 4s, depois 8s...
 @retry(
-    stop=stop_after_attempt(4),
+    stop=stop_after_attempt(3),
     wait=wait_random_exponential(multiplier=1, min=2, max=15), # Adiciona aleatoriedade entre 2s e 15s
     reraise=True
 )
@@ -113,64 +113,79 @@ def investigator_node(state: DisputeState) -> dict:
     ticket_id = state.get("ticket_id")
     
     system_prompt = f"""Você é um Investigador Sênior de Prevenção a Perdas, Compliance e Risco Corporativo.
-            Valor em Disputa: R$ {amount} | Intenção: {intent} | Cliente: {customer_id} | Ticket: {ticket_id}
-
+            Valor Total do Pedido (Teto Máximo): R$ {amount} | Intenção: {intent} | Cliente: {customer_id} | Ticket: {ticket_id}
+            
             SUA MISSÃO INICIAL:
             1. USE as ferramentas de telemetria e histórico para investigar a queixa. NUNCA decida sem dados!
-            2. IMPORTANTE: Utilize APENAS o Cliente ({customer_id}) e o Ticket ({ticket_id}) acima para consultar as ferramentas.
+            2. IMPORTANTE: Utilize APENAS o Cliente e o Ticket acima para consultar as ferramentas.
 
             ⚖️ CONSTITUIÇÃO DA EMPRESA (REGRAS DE ARBITRAGEM ABSOLUTAS):
-            Ao receber os dados das ferramentas, cruze-os IMEDIATAMENTE com as regras abaixo:
+            - REGRA 1 (COMPLIANCE E LEI): Sem OTP em item restrito? NEGUE. Liability: 'nenhum'.
+            - REGRA 2 (PROTEÇÃO AO TRABALHADOR): Espera do entregador > 5 a 10 min? NEGUE (No-Show). Liability: 'nenhum'.
+            - REGRA 3 (ABUSO SISTEMÁTICO): Cliente com histórico Alto de disputas/No-Show? NEGUE.
+            - REGRA 4 (RETENÇÃO E LTV): Cliente LTV alto/B2B e erro logístico? APROVE justificando o LTV.
+            - REGRA 5 (REEMBOLSO PARCIAL EXATO E LIABILITY): Falta de UM item (ex: batata)? Você OBRIGATORIAMENTE deve ler o [RECIBO DOS ITENS DO PEDIDO], localizar o item reclamado e aprovar APENAS o preço exato dele (ignorando o Teto Máximo). Liability: 'restaurante'. Erro na entrega inteira? Liability: 'entregador' ou 'plataforma'.
 
-            - REGRA 1 (COMPLIANCE E LEI): Se o pedido requer validação de idade (Álcool/Restritos) e a senha OTP NÃO foi validada, a entrega é ILEGAL. NEGUE a disputa sumariamente, não importa quem seja o cliente ou qual o seu LTV.
-            - REGRA 2 (PROTEÇÃO AO TRABALHADOR): Se o tempo de espera do entregador for elevado (ex: > 5 a 10 min) e o pedido não foi entregue, a culpa é do cliente (No-Show). NEGUE o reembolso para proteger o tempo do motoboy.
-            - REGRA 3 (ABUSO SISTEMÁTICO): Se o cliente possui um histórico de múltiplas "Ausências na entrega (No-Show)" ou alta taxa de estornos anteriores, trate como Fraude Sistêmica. NEGUE o reembolso mesmo que a evidência atual seja inconclusiva.
-            - REGRA 4 (RETENÇÃO E LTV): Se o cliente possui um alto Lifetime Value (ex: LTV > R$ 5000), tipo de conta B2B ou baixo histórico de disputas, E o entregador não validou OTP ou há indícios de dano, priorize a experiência do cliente. APROVE o reembolso justificando o valor histórico do cliente.
-            - REGRA 5 (REEMBOLSO PARCIAL EXATO E LIABILITY): Se o cliente reclama de UM item faltante (ex: batata, bebida), você OBRIGATORIAMENTE deve ler o [RECIBO DOS ITENS DO PEDIDO] na telemetria, localizar o item reclamado e aprovar APENAS o preço exato dele (ignorando o Valor Total). A culpa (liability) é do 'restaurante'. Se a queixa for erro na entrega inteira, a culpa é 'entregador' ou 'plataforma' (estorno total). Se negado, liability é 'nenhum' e valor 0.0.
-
-            🛡️ ANCORAGEM ESTRITA (GROUNDING):
-            Baseie sua justificativa EXCLUSIVAMENTE nos dados retornados pelas ferramentas. É PROIBIDO presumir, inventar ou mencionar evidências (fotos, assinaturas, conversas) que NÃO estejam explicitamente listadas no retorno do banco.
-
-            Quando terminar de cruzar as evidências com as Regras de Arbitragem, chame a ferramenta 'InvestigatorOutput' para emitir o laudo final.
+            🛡️ ANCORAGEM ESTRITA: Baseie-se APENAS nas ferramentas.
+            Seja direto e conciso na justificativa para economizar tokens. Chame a ferramenta 'InvestigatorOutput' para concluir.
             """
     
     messages_to_cloud = [SystemMessage(content=system_prompt)] + sanitized_messages
     
-    try:
-        response = invoke_with_backoff(llm_with_tools, messages_to_cloud)
-        
+    # --- FUNÇÃO INTERNA PARA PROCESSAR A SAÍDA (Evita repetição de código) ---
+    def process_llm_response(response, is_fallback=False):
         if response.tool_calls and response.tool_calls[0]["name"] == "InvestigatorOutput":
-            print("[INVESTIGAÇÃO CONCLUÍDA] Veredito alcançado com base em dados.")
             args = response.tool_calls[0]["args"]
             
-            # ---------------------------------------------------------
-            # 4. SALVANDO NO CACHE PARA O FUTURO
-            # ---------------------------------------------------------
             if tool_responses:
                 cache_key = semantic_cache.build_cache_key(masked_query, evidence_text)
-                # Opcional: No futuro você pode salvar o liability no cache também
                 semantic_cache.save_to_cache(cache_key, args["recommended_action"], args["justification"])
             
-            # Formatando a resposta rica para a Interface (A2UI)
+            tag_modo = " (VIA SLM LOCAL)" if is_fallback else ""
             parecer_final = (
-                f"Parecer Baseado em Dados: {args['justification']}\n\n"
+                f"Parecer Baseado em Dados{tag_modo}: {args['justification']}\n\n"
                 f"💰 **Valor Aprovado:** R$ {args['approved_refund_amount']:.2f}\n"
                 f"⚖️ **Responsabilidade (Liability):** {args['liability'].upper()}"
             )
-
             return {
                 "recommended_action": args["recommended_action"],
                 "human_in_the_loop_required": args["human_in_the_loop_required"],
                 "messages": [AIMessage(content=parecer_final)]
             }
         
-        print(f"[AÇÃO DO AGENTE] Solicitando busca de dados: {[t['name'] for t in response.tool_calls]}")
+        print(f"[AÇÃO DO AGENTE] Buscando dados... Ferramentas: {[t['name'] for t in response.tool_calls]}")
         return {"messages": [response]}
+    # -------------------------------------------------------------------------
+
+    # TENTATIVA 1: NUVEM (Gemini) COM BACKOFF
+    try:
+        response = invoke_with_backoff(llm_with_tools, messages_to_cloud)
+        return process_llm_response(response, is_fallback=False)
         
-    except Exception as e:
-        print(f"[ERRO FATAL NO INVESTIGADOR CLOUD] {e}")
-        return {
-            "recommended_action": "erro_api_nuvem", 
-            "human_in_the_loop_required": True,
-            "messages": [AIMessage(content="Falha de comunicação com a API.")]
-        }
+    except Exception as cloud_error:
+        print(f"\n⚠️ [ALERTA FINOPS/REDE] LLM Cloud falhou ou excedeu cota: {cloud_error}")
+        print("🔄 [CIRCUIT BREAKER] Acionando Graceful Degradation para SLM Local (Qwen 2.5)...")
+        
+        # TENTATIVA 2: FALLBACK LOCAL (Ollama na GPU)
+        try:
+            local_slm = LLMFactory.get_local_slm(temperature=0.1)
+            local_llm_with_tools = local_slm.bind_tools(db_tools + [InvestigatorOutput])
+            
+            # Adicionamos um aviso para o SLM saber que está operando o roteamento principal
+            fallback_prompt = SystemMessage(content="[MODO CONTINGÊNCIA] A API principal caiu. Assuma o controle da investigação.")
+            messages_to_local = [fallback_prompt, SystemMessage(content=system_prompt)] + sanitized_messages
+            
+            # Invoca direto, sem backoff de rede
+            response_local = local_llm_with_tools.invoke(messages_to_local)
+            print("✅ [FALLBACK CONCLUÍDO] SLM Local assumiu a carga com sucesso.")
+            
+            return process_llm_response(response_local, is_fallback=True)
+            
+        except Exception as local_error:
+            # TENTATIVA 3: FALHA CATASTRÓFICA (Ambos caíram)
+            print(f"❌ [ERRO FATAL DUPLO] Falha na Nuvem e no Local: {local_error}")
+            return {
+                "recommended_action": "erro_api_duplo", 
+                "human_in_the_loop_required": True,
+                "messages": [AIMessage(content="🚨 Falha crítica de IA. Nuvem e Edge indisponíveis. Ticket escalado para Humano.")]
+            }
