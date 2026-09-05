@@ -1,5 +1,6 @@
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
+from langsmith import traceable
 from sentinel.core.llm_factory import LLMFactory
 
 class SemanticCache:
@@ -8,7 +9,8 @@ class SemanticCache:
         self.embeddings = LLMFactory.get_embeddings_model()
         self.vector_store = None
         self.distance_threshold = 0.12
-
+    
+    @traceable(run_type="retriever", name="Consultar_Semantic_Cache")
     def check_cache(self, query: str) -> dict | None:
         """
         Calcula a similaridade geométrica da nova queixa.
@@ -41,6 +43,7 @@ class SemanticCache:
         """
         return f"[Queixa]: {query_masked}\n[Evidências]: {telemetry_data}"
 
+    @traceable(run_type="tool", name="Salvar_no_Semantic_Cache")
     def save_to_cache(self, query: str, action: str, justification: str):
         """
         Salva a queixa (vetorizada) e a decisão (metadados) para uso futuro.
