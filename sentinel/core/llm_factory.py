@@ -29,16 +29,17 @@ class LLMFactory:
     @staticmethod
     def get_local_slm(temperature: float = 0.0) -> ChatOllama:
         """
-        Retorna o SLM Local (Ollama Llama 3.2 3B) executando na GPU/Localhost.
-        Utilizado para triage primária, roteamento e mascaramento de PII (zero cost).
+        Retorna o SLM Local (Qwen 2.5 7B) executando na GPU/Localhost isolado via Docker.
+        Utilizado para triage semântica primária, roteamento híbrido e topical guardrails (zero cost).
+        O Qwen foi escolhido pela superioridade em poliglotismo (PT-BR) e aderência ao JSON.
         """
         return ChatOllama(
-            model="llama3.2",
+            model="qwen2.5:7b",
             base_url=settings.ollama_base_url,
             temperature=temperature,
-            # Parâmetros otimizados para inferência rápida na minha máquina (laptop RTX 3070)
+            # Parâmetros otimizados para inferência rápida (adequado para RTX 3070 8GB)
             num_predict=512,
-            format="json" # Força o modelo a cuspir JSON para facilitar o roteamento
+            format="json" # Qwen 2.5 respeita nativamente a saída estruturada
         )
         
     @staticmethod
