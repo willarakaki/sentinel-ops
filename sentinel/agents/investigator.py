@@ -1,5 +1,6 @@
+import json
 from pydantic import BaseModel, Field
-from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, ToolMessage
 from tenacity import retry, stop_after_attempt, wait_random_exponential
 
 from sentinel.core.llm_factory import LLMFactory
@@ -9,11 +10,13 @@ from sentinel.core.privacy import mask_pii
 from sentinel.core.cache import semantic_cache
 
 # ==========================================
-# 1. CONTRATO DE SAÍDA
+# 1. CONTRATO DE SAÍDA (EVOLUÇÃO FINOPS)
 # ==========================================
 class InvestigatorOutput(BaseModel):
     """Use esta ferramenta APENAS para submeter o veredito final após coletar evidências."""
     recommended_action: str = Field(description="'aprovar_reembolso', 'negar_disputa', ou 'escalar_humano'.")
+    approved_refund_amount: float = Field(description="Valor exato a estornar. 0.0 se negado, valor parcial se faltou só um item, ou total se perda total.")
+    liability: str = Field(description="Quem assume o prejuízo: 'restaurante', 'entregador', 'plataforma', ou 'nenhum' (se negado).")
     justification: str = Field(description="Justificativa técnica baseada na telemetria.")
     human_in_the_loop_required: bool = Field(description="True se a decisão for inconclusiva ou suspeita.")
 
@@ -23,7 +26,7 @@ class InvestigatorOutput(BaseModel):
 # Se a chamada falhar (503, 429, timeout), tenta até 4 vezes.
 # Espera 2s, depois 4s, depois 8s...
 @retry(
-    stop=stop_after_attempt(4),
+    stop=stop_after_attempt(3),
     wait=wait_random_exponential(multiplier=1, min=2, max=15), # Adiciona aleatoriedade entre 2s e 15s
     reraise=True
 )
@@ -42,11 +45,13 @@ def investigator_node(state: DisputeState) -> dict:
     llm_with_tools = cloud_llm.bind_tools(db_tools + [InvestigatorOutput])
     
     # ---------------------------------------------------------
-    # 2. EXTRAÇÃO DE CONTEXTO PARA O CACHE
+    # EXTRAÇÃO DE CONTEXTO E INTERCEPTAÇÃO MIDDLEWARE
     # ---------------------------------------------------------
     masked_query = ""
     tool_responses = []
     sanitized_messages = []
+    
+    sandbox_receipt = state.get("sandbox_receipt_json", "")
     
     for msg in state["messages"]:
         if isinstance(msg, HumanMessage):
@@ -56,9 +61,29 @@ def investigator_node(state: DisputeState) -> dict:
                 masked_query = clean_text 
             sanitized_messages.append(HumanMessage(content=clean_text))
         elif msg.type == "tool":
-            # Coleta as evidências devolvidas pelo banco de dados
-            tool_responses.append(msg.content)
-            sanitized_messages.append(msg)
+            content = msg.content
+            
+            # 🚀 MIDDLEWARE DE INTERCEPTAÇÃO (Testes Livres sem sujar o DB)
+            if msg.name == "get_delivery_telemetry" and sandbox_receipt:
+                try:
+                    items = json.loads(sandbox_receipt)
+                    formatted_sandbox = "\n[⚠️ MODO SANDBOX ATIVO - RECIBO SOBRESCRITO EM MEMÓRIA PARA ESTE TESTE]:\n"
+                    formatted_sandbox += "REGRA ABSOLUTA: Ignore o recibo de telemetria original acima. Calcule estornos baseados APENAS nos itens abaixo:\n"
+                    for item in items:
+                        formatted_sandbox += f"  - {item['item']}: R$ {item['price']:.2f}\n"
+                    
+                    # Anexa a ordem de sobrescrita diretamente na resposta da ferramenta!
+                    content = content + f"\n\n{formatted_sandbox}"
+                except:
+                    print("Erro ao decodificar JSON do Sandbox no Middleware.")
+            
+            tool_responses.append(content)
+            
+            # Precisamos recriar o ToolMessage com o conteúdo alterado para o LLM
+            if msg.content != content:
+                sanitized_messages.append(ToolMessage(content=content, tool_call_id=msg.tool_call_id, name=msg.name))
+            else:
+                sanitized_messages.append(msg)
         else:
             sanitized_messages.append(msg)
             
@@ -87,45 +112,80 @@ def investigator_node(state: DisputeState) -> dict:
     customer_id = state.get("customer_id")
     ticket_id = state.get("ticket_id")
     
-    system_prompt = f"""Você é um Investigador de Prevenção a Perdas.
-        Valor em Disputa: R$ {amount} | Intenção: {intent} | Cliente: {customer_id} | Ticket: {ticket_id}
+    system_prompt = f"""Você é um Investigador Sênior de Prevenção a Perdas, Compliance e Risco Corporativo.
+            Valor Total do Pedido (Teto Máximo): R$ {amount} | Intenção: {intent} | Cliente: {customer_id} | Ticket: {ticket_id}
+            
+            SUA MISSÃO INICIAL:
+            1. USE as ferramentas de telemetria e histórico para investigar a queixa. NUNCA decida sem dados!
+            2. IMPORTANTE: Utilize APENAS o Cliente e o Ticket acima para consultar as ferramentas.
 
-        SUA MISSÃO:
-        1. USE as ferramentas de telemetria e histórico para investigar a queixa. NUNCA decida sem dados!
-        2. IMPORTANTE: Para consultar as ferramentas, utilize APENAS o Cliente ({customer_id}) e o Ticket ({ticket_id}) fornecidos acima. Não invente IDs.
-        3. ANCORAGEM ESTRITA (GROUNDING): Baseie sua justificativa EXCLUSIVAMENTE nos dados retornados pelas ferramentas. É estritamente PROIBIDO presumir, inventar ou mencionar a existência de fotos, assinaturas, lacres, ou qualquer outra evidência física que NÃO esteja explicitamente listada no retorno do banco de dados.
-        4. Quando reunir as evidências, chame a ferramenta 'InvestigatorOutput' para emitir o laudo final.
-        """
+            ⚖️ CONSTITUIÇÃO DA EMPRESA (REGRAS DE ARBITRAGEM ABSOLUTAS):
+            - REGRA 1 (COMPLIANCE E LEI): Sem OTP em item restrito? NEGUE. Liability: 'nenhum'.
+            - REGRA 2 (PROTEÇÃO AO TRABALHADOR): Espera do entregador > 5 a 10 min? NEGUE (No-Show). Liability: 'nenhum'.
+            - REGRA 3 (ABUSO SISTEMÁTICO): Cliente com histórico Alto de disputas/No-Show? NEGUE.
+            - REGRA 4 (RETENÇÃO E LTV): Cliente LTV alto/B2B e erro logístico? APROVE justificando o LTV.
+            - REGRA 5 (REEMBOLSO PARCIAL EXATO E LIABILITY): Falta de UM item (ex: batata)? Você OBRIGATORIAMENTE deve ler o [RECIBO DOS ITENS DO PEDIDO], localizar o item reclamado e aprovar APENAS o preço exato dele (ignorando o Teto Máximo). Liability: 'restaurante'. Erro na entrega inteira? Liability: 'entregador' ou 'plataforma'.
+
+            🛡️ ANCORAGEM ESTRITA: Baseie-se APENAS nas ferramentas.
+            Seja direto e conciso na justificativa para economizar tokens. Chame a ferramenta 'InvestigatorOutput' para concluir.
+            """
     
     messages_to_cloud = [SystemMessage(content=system_prompt)] + sanitized_messages
     
-    try:
-        response = invoke_with_backoff(llm_with_tools, messages_to_cloud)
-        
+    # --- FUNÇÃO INTERNA PARA PROCESSAR A SAÍDA (Evita repetição de código) ---
+    def process_llm_response(response, is_fallback=False):
         if response.tool_calls and response.tool_calls[0]["name"] == "InvestigatorOutput":
-            print("[INVESTIGAÇÃO CONCLUÍDA] Veredito alcançado com base em dados.")
             args = response.tool_calls[0]["args"]
             
-            # ---------------------------------------------------------
-            # 4. SALVANDO NO CACHE PARA O FUTURO
-            # ---------------------------------------------------------
             if tool_responses:
                 cache_key = semantic_cache.build_cache_key(masked_query, evidence_text)
                 semantic_cache.save_to_cache(cache_key, args["recommended_action"], args["justification"])
             
+            tag_modo = " (VIA SLM LOCAL)" if is_fallback else ""
+            parecer_final = (
+                f"Parecer Baseado em Dados{tag_modo}: {args['justification']}\n\n"
+                f"💰 **Valor Aprovado:** R$ {args['approved_refund_amount']:.2f}\n"
+                f"⚖️ **Responsabilidade (Liability):** {args['liability'].upper()}"
+            )
             return {
                 "recommended_action": args["recommended_action"],
                 "human_in_the_loop_required": args["human_in_the_loop_required"],
-                "messages": [AIMessage(content=f"Parecer Baseado em Dados: {args['justification']}")]
+                "messages": [AIMessage(content=parecer_final)]
             }
         
-        print(f"[AÇÃO DO AGENTE] Solicitando busca de dados: {[t['name'] for t in response.tool_calls]}")
+        print(f"[AÇÃO DO AGENTE] Buscando dados... Ferramentas: {[t['name'] for t in response.tool_calls]}")
         return {"messages": [response]}
+    # -------------------------------------------------------------------------
+
+    # TENTATIVA 1: NUVEM (Gemini) COM BACKOFF
+    try:
+        response = invoke_with_backoff(llm_with_tools, messages_to_cloud)
+        return process_llm_response(response, is_fallback=False)
         
-    except Exception as e:
-        print(f"[ERRO FATAL NO INVESTIGADOR CLOUD] {e}")
-        return {
-            "recommended_action": "erro_api_nuvem", 
-            "human_in_the_loop_required": True,
-            "messages": [AIMessage(content="Falha de comunicação com a API.")]
-        }
+    except Exception as cloud_error:
+        print(f"\n⚠️ [ALERTA FINOPS/REDE] LLM Cloud falhou ou excedeu cota: {cloud_error}")
+        print("🔄 [CIRCUIT BREAKER] Acionando Graceful Degradation para SLM Local (Qwen 2.5)...")
+        
+        # TENTATIVA 2: FALLBACK LOCAL (Ollama na GPU)
+        try:
+            local_slm = LLMFactory.get_local_slm(temperature=0.1)
+            local_llm_with_tools = local_slm.bind_tools(db_tools + [InvestigatorOutput])
+            
+            # Adicionamos um aviso para o SLM saber que está operando o roteamento principal
+            fallback_prompt = SystemMessage(content="[MODO CONTINGÊNCIA] A API principal caiu. Assuma o controle da investigação.")
+            messages_to_local = [fallback_prompt, SystemMessage(content=system_prompt)] + sanitized_messages
+            
+            # Invoca direto, sem backoff de rede
+            response_local = local_llm_with_tools.invoke(messages_to_local)
+            print("✅ [FALLBACK CONCLUÍDO] SLM Local assumiu a carga com sucesso.")
+            
+            return process_llm_response(response_local, is_fallback=True)
+            
+        except Exception as local_error:
+            # TENTATIVA 3: FALHA CATASTRÓFICA (Ambos caíram)
+            print(f"❌ [ERRO FATAL DUPLO] Falha na Nuvem e no Local: {local_error}")
+            return {
+                "recommended_action": "erro_api_duplo", 
+                "human_in_the_loop_required": True,
+                "messages": [AIMessage(content="🚨 Falha crítica de IA. Nuvem e Edge indisponíveis. Ticket escalado para Humano.")]
+            }

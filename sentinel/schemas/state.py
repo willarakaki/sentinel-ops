@@ -27,3 +27,6 @@ class DisputeState(TypedDict):
     # 5. Veredito e Auditoria (Preenchidos pelo LLM Cloud / Gemini ou Regra de Negócio)
     recommended_action: str | None
     human_in_the_loop_required: bool
+    
+    # Carrega o recibo mockado em memória apenas durante a duração deste teste
+    sandbox_receipt_json: str

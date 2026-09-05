@@ -9,6 +9,12 @@ services:
     container_name: sentinel_ollama
     ports:
       - "11434:11434"
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
     volumes:
       - ollama_data:/root/.ollama
     deploy:
@@ -31,19 +37,22 @@ services:
     # Sobrescrevemos a trava da imagem original para usar o Shell do Linux
     entrypoint: [ "/bin/sh", "-c" ]
     # Usamos o pipe (|) para rodar um script limpo de múltiplas linhas
-    command: |
-      echo "⏳ Aguardando o motor do Ollama iniciar (5s)..."
-      sleep 5
-      
-      echo "⚙️ Baixando WAF (llama-guard3:1b)..."
-      ollama pull llama-guard3:1b
-      
-      echo "⚙️ Baixando Embeddings (nomic-embed-text:latest)..."
-      ollama pull nomic-embed-text:latest
-      
-      echo "✅ Provisionamento de SLMs concluído com sucesso!"
+    command:
+      - |
+        set -e
+        echo "Baixando WAF (llama-guard3:1b)..."
+        ollama pull llama-guard3:1b
+
+        echo "Baixando Embeddings (nomic-embed-text:latest)..."
+        ollama pull nomic-embed-text:latest
+
+        echo "Baixando Cerebro de Triagem (qwen2.5:7b)..."
+        ollama pull qwen2.5:7b
+
+        echo "Provisionamento de SLMs concluido com sucesso!"
     depends_on:
-      - ollama
+      ollama:
+        condition: service_healthy
 
   # -------------------------------------------------------------
   # FASE 3: SENTINEL-APP (Backend LangGraph + UI Streamlit)
