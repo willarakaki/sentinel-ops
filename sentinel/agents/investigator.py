@@ -1,5 +1,6 @@
+import json
 from pydantic import BaseModel, Field
-from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, ToolMessage
 from tenacity import retry, stop_after_attempt, wait_random_exponential
 
 from sentinel.core.llm_factory import LLMFactory
@@ -44,11 +45,13 @@ def investigator_node(state: DisputeState) -> dict:
     llm_with_tools = cloud_llm.bind_tools(db_tools + [InvestigatorOutput])
     
     # ---------------------------------------------------------
-    # 2. EXTRAÇÃO DE CONTEXTO PARA O CACHE
+    # EXTRAÇÃO DE CONTEXTO E INTERCEPTAÇÃO MIDDLEWARE
     # ---------------------------------------------------------
     masked_query = ""
     tool_responses = []
     sanitized_messages = []
+    
+    sandbox_receipt = state.get("sandbox_receipt_json", "")
     
     for msg in state["messages"]:
         if isinstance(msg, HumanMessage):
@@ -58,9 +61,29 @@ def investigator_node(state: DisputeState) -> dict:
                 masked_query = clean_text 
             sanitized_messages.append(HumanMessage(content=clean_text))
         elif msg.type == "tool":
-            # Coleta as evidências devolvidas pelo banco de dados
-            tool_responses.append(msg.content)
-            sanitized_messages.append(msg)
+            content = msg.content
+            
+            # 🚀 MIDDLEWARE DE INTERCEPTAÇÃO (Testes Livres sem sujar o DB)
+            if msg.name == "get_delivery_telemetry" and sandbox_receipt:
+                try:
+                    items = json.loads(sandbox_receipt)
+                    formatted_sandbox = "\n[⚠️ MODO SANDBOX ATIVO - RECIBO SOBRESCRITO EM MEMÓRIA PARA ESTE TESTE]:\n"
+                    formatted_sandbox += "REGRA ABSOLUTA: Ignore o recibo de telemetria original acima. Calcule estornos baseados APENAS nos itens abaixo:\n"
+                    for item in items:
+                        formatted_sandbox += f"  - {item['item']}: R$ {item['price']:.2f}\n"
+                    
+                    # Anexa a ordem de sobrescrita diretamente na resposta da ferramenta!
+                    content = content + f"\n\n{formatted_sandbox}"
+                except:
+                    print("Erro ao decodificar JSON do Sandbox no Middleware.")
+            
+            tool_responses.append(content)
+            
+            # Precisamos recriar o ToolMessage com o conteúdo alterado para o LLM
+            if msg.content != content:
+                sanitized_messages.append(ToolMessage(content=content, tool_call_id=msg.tool_call_id, name=msg.name))
+            else:
+                sanitized_messages.append(msg)
         else:
             sanitized_messages.append(msg)
             

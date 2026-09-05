@@ -19,16 +19,6 @@ def get_ticket_receipt_for_ui(ticket_id: str):
     except Exception as e:
         st.sidebar.error(f"Erro ao ler recibo: {e}")
     return []
-
-# --- FUNÇÃO HELPER PARA QA (Payload Injection) ---
-def override_ticket_mock_value(ticket_id: str, raw_json_str: str):
-    """Substitui o JSON do banco com a exata string fornecida pelo testador."""
-    db_path = os.path.join(os.getcwd(), "data", "sentinel.duckdb")
-    try:
-        with duckdb.connect(db_path) as conn:
-            conn.execute("UPDATE delivery_telemetry SET order_items_json = ? WHERE ticket_id = ?", [raw_json_str, ticket_id])
-    except Exception as e:
-        st.error(f"Erro ao mockar BD: {e}")
         
 # --- CALLBACKS PARA O CARRINHO DO SANDBOX ---
 def add_sandbox_item():
@@ -216,12 +206,9 @@ config = {"configurable": {"thread_id": st.session_state.thread_id}}
 
 if prompt := st.chat_input("Descreva o seu problema com o pedido..."):
     
-    # SE o modo Sandbox estiver ligado e o JSON for válido, sobrescrevemos o banco AGORA
-    if sandbox_mode and receipt_items:
-        override_ticket_mock_value(ticket_id, sandbox_json_str)
-    
     # Renderiza a queixa do cliente na tela
     st.session_state.chat_history.append({"role": "user", "content": prompt})
+    
     with st.chat_message("user"):
         st.markdown(prompt)
 
@@ -229,7 +216,8 @@ if prompt := st.chat_input("Descreva o seu problema com o pedido..."):
         "messages": [HumanMessage(content=prompt)],
         "ticket_id": ticket_id,
         "customer_id": customer_id,
-        "dispute_amount": dispute_amount
+        "dispute_amount": dispute_amount,
+        "sandbox_receipt_json": sandbox_json_str if sandbox_mode else ""
     }
 
     # Aciona o Orquestrador

@@ -15,7 +15,7 @@ def run_smoke_test():
     
     try:
         # 1. Testando o SLM Local (Ollama / RTX 3070)
-        print("--- 1. Testando SLM Local (Ollama Llama 3.2 3B) ---")
+        print("--- 1. Testando SLM Local (Ollama Qwen 2.5 7B) ---")
         slm = LLMFactory.get_local_slm()
         chain_slm = slm | parser
         response_slm = chain_slm.invoke("Diga exatamente 'Olá, Sentinel! Rodando 100% local.' e nada mais.")
