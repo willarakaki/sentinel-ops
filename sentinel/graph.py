@@ -1,6 +1,7 @@
 import os
 import sqlite3
 import duckdb
+import json
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.prebuilt import ToolNode
@@ -53,7 +54,7 @@ def route_security(state: DisputeState) -> str:
 
 def route_after_triage(state: DisputeState) -> str:
     """
-    Roteador Híbrido com Deep Data Hydration.
+    Roteador Híbrido com Deep Data Hydration e Zero Trust.
     """
     print("--- [ROTEADOR: Hidratação Profunda de Dados] ---")
     
@@ -72,8 +73,9 @@ def route_after_triage(state: DisputeState) -> str:
     db_path = os.path.join(os.getcwd(), "data", "sentinel.duckdb")
     db_risk = "high"
     is_age_restricted = False
+    order_items_str = None
     
-    # 1. HYDRATION: Busca Risco e Compliance no Banco
+    # 1. HYDRATION: Busca Risco, Compliance e Recibo Real no Banco
     try:
         with duckdb.connect(db_path, read_only=True) as conn:
             # Busca risco
@@ -81,14 +83,28 @@ def route_after_triage(state: DisputeState) -> str:
             if res_risk:
                 db_risk = res_risk[0].lower()
             
-            # Busca compliance (Bebida/Remédio)
-            res_ticket = conn.execute("SELECT is_age_restricted FROM delivery_telemetry WHERE ticket_id = ?", [ticket_id]).fetchone()
+            # Busca compliance (Bebida) e o JSON do Recibo!
+            res_ticket = conn.execute("SELECT is_age_restricted, order_items_json FROM delivery_telemetry WHERE ticket_id = ?", [ticket_id]).fetchone()
             if res_ticket:
                 is_age_restricted = res_ticket[0]
+                order_items_str = res_ticket[1]
     except Exception as e:
         print(f" ⚠️ Erro ao hidratar dados: {e}")
         
-    print(f" >> Risco LLM: {llm_risk} | Risco DB: {db_risk} | Compliance Restrito: {is_age_restricted}")
+    # 1.1 ZERO TRUST MATEMÁTICO (Cálculo do Valor Real)
+    db_order_total = 0.0
+    sandbox_receipt = state.get("sandbox_receipt_json", "")
+    
+    try:
+        # Se estivermos em modo QA, respeitamos a memória efêmera. Se não, usamos o DB real.
+        json_to_parse = sandbox_receipt if sandbox_receipt else order_items_str
+        if json_to_parse:
+            items = json.loads(json_to_parse)
+            db_order_total = sum(float(i.get("price", 0.0)) for i in items)
+    except Exception as e:
+        print(f" ⚠️ Erro ao parsear JSON no Roteador: {e}")
+
+    print(f" >> Risco LLM: {llm_risk} | Risco DB: {db_risk} | Restrito: {is_age_restricted} | Teto Solicitado: R$ {amount} | Teto Real: R$ {db_order_total}")
     
     # 2. REGRA DE COMPLIANCE (Soberana)
     if is_age_restricted:
@@ -100,14 +116,18 @@ def route_after_triage(state: DisputeState) -> str:
         print(" >> 🚨 EMERGÊNCIA: Risco crítico ou falha semântica. Escalando para Humano.")
         return "human_review"
         
-    # 4. REGRA FINOPS (Auto-Refund)
+    # 4. REGRA FINOPS (Auto-Refund) COM ZERO TRUST
     micro_max = dispute_rules.tiers["micro"].max_value
+    
     if db_risk == "low" and amount <= micro_max:
-        print(f" >> 💰 FINOPS: Risco Baixo e Valor Micro. Roteando para AUTO REFUND.")
-        return "auto_refund"
+        if amount <= db_order_total:
+            print(f" >> 💰 FINOPS: Risco Baixo, Valor Micro e Coerente com Recibo. Roteando para AUTO REFUND.")
+            return "auto_refund"
+        else:
+            print(f" >> 🚨 ANOMALIA FINANCEIRA: Tentativa de estorno (R$ {amount}) maior que o recibo real (R$ {db_order_total}). Interceptando Fraude de Front-end!")
+            return "investigator"
         
-    # 5. CAMINHO PADRÃO (Fraudes, Abusos e Casos Médios)
-    # Mandamos os clientes 'High' para cá para o Gemini aplicar a regra do No-Show e negar automaticamente!
+    # 5. CAMINHO PADRÃO
     print(" >> 🔍 INVESTIGAÇÃO: Roteando para análise profunda (Gemini).")
     return "investigator"
 
