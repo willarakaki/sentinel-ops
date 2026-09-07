@@ -12,12 +12,34 @@ from sentinel.schemas.state import DisputeState
 from sentinel.agents.triage import triage_node
 from sentinel.agents.investigator import investigator_node
 from config.settings import dispute_rules
-from sentinel.tools.database import get_delivery_telemetry, get_customer_history
+from sentinel.tools.database import get_customer_profile, get_delivery_telemetry, get_customer_history
 from sentinel.agents.security_shield import security_shield_node
 from sentinel.core.cache import semantic_cache
 from sentinel.core.privacy import mask_pii
+from sentinel.core.cache_signature import build_trust_signature, signature_to_text
+from sentinel.core.sandbox import apply_sandbox_override
 
 os.makedirs("data", exist_ok=True)
+
+
+# ==========================================
+# 0. RESET DE ESTADO ENTRE DISPUTAS NO MESMO THREAD
+# ==========================================
+def reset_turn_node(state: DisputeState) -> dict:
+    """
+    Roda no início de TODA nova invocação a partir de START, garantindo que o
+    veredito (recommended_action) de uma disputa ANTERIOR no mesmo thread_id
+    não vaze pra disputa atual. Sem isso, route_after_cache/route_investigator
+    ("if state.get('recommended_action'): return END") encerram o grafo
+    prematuramente reaproveitando o veredito de outro ticket, porque nenhum nó
+    limpava esse campo entre uma mensagem e outra no mesmo checkpoint.
+
+    Seguro em relação ao HITL: quando o grafo está pausado em "human_review" e
+    é retomado via sentinel_app.stream(None, config=config), a execução volta
+    a partir do ponto pausado, sem passar por START de novo — então esse reset
+    não interfere na retomada humana, só em invocações NOVAS (.stream(input, ...)).
+    """
+    return {"recommended_action": None, "human_in_the_loop_required": False}
 
 # ==========================================
 # 1. NÓS SIMULADOS
@@ -39,26 +61,27 @@ def out_of_scope_node(state: DisputeState) -> dict:
         "messages": [AIMessage(content="🛡️ **Bloqueio de Escopo:** Sou o SentinelOps, um assistente exclusivo para resolução de disputas financeiras e logísticas de delivery. Não posso responder a perguntas sobre outros assuntos.")]
     }
 
+
+def profile_allows_semantic_cache(profile: dict) -> bool:
+    """Aplica a política comportamental antes de reutilizar uma decisão."""
+    risk_score = profile.get("risk_score", "HIGH").upper()
+    disputes = int(profile.get("previous_disputes", 0))
+    no_shows = int(profile.get("no_show_count", 0))
+    total_orders = max(int(profile.get("total_orders", 0)), 1)
+    dispute_rate = disputes / total_orders
+
+    # LTV alto melhora retenção, mas não compensa abuso ou reincidência.
+    return (
+        risk_score != "HIGH"
+        and disputes < 10
+        and no_shows < 3
+        and dispute_rate < 0.15
+    )
+
 # ==========================================
 # 1.1 HIDRATAÇÃO DETERMINÍSTICA + SEMANTIC CACHE
 # ==========================================
 def hydrate_and_check_cache_node(state: DisputeState) -> dict:
-    """
-    Busca telemetria e histórico DIRETAMENTE do banco (sem depender do Gemini
-    decidir chamar as tools) e consulta o Semantic Cache ANTES de qualquer
-    chamada à nuvem.
-
-    Por que isso existe: o system_prompt do investigator já instrui o Gemini a
-    SEMPRE chamar as duas mesmas tools ("NUNCA decida sem dados") — não há
-    decisão autônoma real acontecendo ali, só custo de rede pago toda vez.
-    Fazendo essa mesma busca aqui (o mesmo padrão que route_after_triage já usa
-    com DuckDB), um Cache HIT elimina as DUAS chamadas ao Gemini, não só a
-    segunda.
-
-    Em caso de MISS, não escreve nada no state: o fluxo segue normalmente para
-    o investigator, que faz sua própria investigação via ReAct (e seu próprio
-    save_to_cache ao final).
-    """
     print("--- [NÓ: HIDRATAÇÃO + SEMANTIC CACHE] ---")
 
     customer_id = state.get("customer_id")
@@ -68,41 +91,29 @@ def hydrate_and_check_cache_node(state: DisputeState) -> dict:
     if not state.get("messages"):
         return {}
 
-    # ⚠️ Ajuste os nomes das chaves abaixo conforme a assinatura real das tools
-    # em sentinel/tools/database.py (aqui assumimos ticket_id e customer_id).
     try:
         telemetry = get_delivery_telemetry.invoke({"ticket_id": ticket_id})
-        history = get_customer_history.invoke({"customer_id": customer_id})
+        profile = get_customer_profile(customer_id)
     except Exception as e:
-        print(f" ⚠️ [Hidratação] Falha ao buscar dados diretamente ({e}). Delegando ao Investigador (ReAct).")
+        print(f" ⚠️ [Hidratação] Falha ao buscar dados diretamente ({e}). Delegando ao Investigador.")
         return {}
 
-    # Preserva o middleware de sandbox que existia no investigator.py, para não
-    # quebrar testes de QA que sobrescrevem o recibo em memória.
+    if not profile or not profile_allows_semantic_cache(profile):
+        print("  🛡️ [Semantic Cache] Perfil comportamental inelegível. Enviando ao Investigator.")
+        return {}
+
     sandbox_receipt = state.get("sandbox_receipt_json", "")
-    if sandbox_receipt:
-        try:
-            items = json.loads(sandbox_receipt)
-            formatted_sandbox = "\n[⚠️ MODO SANDBOX ATIVO - RECIBO SOBRESCRITO EM MEMÓRIA PARA ESTE TESTE]:\n"
-            formatted_sandbox += "REGRA ABSOLUTA: Ignore o recibo de telemetria original acima. Calcule estornos baseados APENAS nos itens abaixo:\n"
-            for item in items:
-                formatted_sandbox += f"  - {item['item']}: R$ {item['price']:.2f}\n"
-            telemetry = telemetry + f"\n\n{formatted_sandbox}"
-        except Exception:
-            print(" ⚠️ [Hidratação] Erro ao decodificar JSON do Sandbox.")
+    telemetry = apply_sandbox_override(telemetry, sandbox_receipt, ticket_id)
 
-    # Ordem fixa (telemetria, depois histórico) para garantir uma chave de cache
-    # determinística — no fluxo antigo essa ordem dependia da ordem em que o
-    # Gemini decidia chamar as tools, o que podia gerar chaves diferentes para
-    # a mesma evidência.
-    evidence_text = f"{telemetry}\n{history}"
-    masked_query = mask_pii(state["messages"][0].content)
-    cache_key = semantic_cache.build_cache_key(masked_query, evidence_text)
+    trust_signature = build_trust_signature(profile)
+    trust_text = signature_to_text(trust_signature)
 
-    cached = semantic_cache.check_cache(cache_key, current_amount=amount)
+    masked_query = mask_pii(state["messages"][-1].content)
+    cache_key = semantic_cache.build_cache_key(masked_query, telemetry, trust_text)
 
+    cached = semantic_cache.check_cache(cache_key, current_amount=amount, trust_signature=trust_signature)
     if not cached:
-        return {}  # MISS: segue para o investigator
+        return {}
 
     parecer_final = (
         f"Parecer Baseado em Dados (VIA CACHE): {cached.get('justification', '')}\n\n"
@@ -112,7 +123,7 @@ def hydrate_and_check_cache_node(state: DisputeState) -> dict:
 
     return {
         "recommended_action": cached["recommended_action"],
-        "human_in_the_loop_required": False,
+        "human_in_the_loop_required": cached["recommended_action"] == "escalar_humano",  # defensivo
         "messages": [AIMessage(content=parecer_final)],
     }
 
@@ -199,7 +210,21 @@ def route_after_triage(state: DisputeState) -> str:
         print(" >> 🚨 EMERGÊNCIA: Risco crítico ou falha semântica. Escalando para Humano.")
         return "human_review"
 
-    # 4. REGRA FINOPS (Auto-Refund) COM ZERO TRUST
+    # 4. PERFIL HIGH: valores maiores exigem decisão humana; valores menores
+    # seguem ao Investigator para uma análise baseada nas evidências das tools.
+    medium_min = dispute_rules.tiers["medium"].min_value
+    if db_risk == "high":
+        if amount > medium_min:
+            print(
+                f" >> 🛡️ PERFIL HIGH + DISPUTA ACIMA DE R$ {medium_min:.2f}: "
+                "Escalando diretamente para HITL."
+            )
+            return "human_review"
+
+        print(" >> 🛡️ PERFIL HIGH: enviando ao Investigator para decisão baseada em evidências.")
+        return "investigator"
+
+    # 5. REGRA FINOPS (Auto-Refund) COM ZERO TRUST
     micro_max = dispute_rules.tiers["micro"].max_value
 
     if db_risk == "low" and amount <= micro_max:
@@ -227,6 +252,7 @@ def build_graph():
     print("⚙️ Construindo Orquestrador LangGraph Híbrido (Local + Cloud)...")
     workflow = StateGraph(DisputeState)
 
+    workflow.add_node("reset_turn", reset_turn_node)
     workflow.add_node("security_shield", security_shield_node)
     workflow.add_node("triage", triage_node)
     workflow.add_node("hydrate_and_check_cache", hydrate_and_check_cache_node)
@@ -239,7 +265,8 @@ def build_graph():
     workflow.add_node("tools", ToolNode(db_tools))
 
     # Redesenhando o Fluxo Corretamente
-    workflow.add_edge(START, "security_shield")
+    workflow.add_edge(START, "reset_turn")
+    workflow.add_edge("reset_turn", "security_shield")
 
     workflow.add_conditional_edges(
         "security_shield",

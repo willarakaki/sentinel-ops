@@ -5,14 +5,14 @@ from langchain_core.documents import Document
 from langsmith import traceable
 from sentinel.core.llm_factory import LLMFactory
 
-CACHE_DIR = os.path.join(os.getcwd(), "data", "faiss_cache")
+CACHE_DIR = os.path.join(os.getcwd(), "data", "faiss_cache_v2")
 
 
 class SemanticCache:
     def __init__(self):
         print("  🧠 [Cache] Inicializando Gerenciador de Banco Vetorial...")
         self.embeddings = LLMFactory.get_embeddings_model()
-        self.distance_threshold = 0.12
+        self.distance_threshold = 0.15
         # Tolerância de divergência de valor entre o veredito em cache e a disputa
         # atual, usada como guarda anti-poisoning (0.2 = 20%).
         self.amount_tolerance = 0.2
@@ -30,6 +30,12 @@ class SemanticCache:
                     CACHE_DIR,
                     self.embeddings,
                     allow_dangerous_deserialization=True,
+                    normalize_L2=True,  # ESSENCIAL: sem isso, o índice recarregado
+                    # do disco volta com normalize_L2=False (default da classe),
+                    # e passa a comparar a query CRUA contra vetores normalizados
+                    # já salvos — a distância L2 nunca mais cai perto do threshold,
+                    # mesmo para texto idêntico. Isso é o que causava MISS eterno
+                    # após o primeiro save+reload.
                 )
                 print(f"  🧠 [Cache] Banco FAISS carregado do disco ({CACHE_DIR}).")
             except Exception as e:
@@ -42,84 +48,78 @@ class SemanticCache:
             self.vector_store = None
 
     @traceable(run_type="retriever", name="Consultar_Semantic_Cache")
-    def check_cache(self, query: str, current_amount: float | None = None) -> dict | None:
-        """
-        Calcula a similaridade geométrica da nova queixa+evidências.
-        Retorna o veredito armazenado se for um Cache HIT E o valor aprovado
-        em cache for coerente com o valor da disputa atual (guarda anti-poisoning).
-        """
+    def check_cache(self, query: str, current_amount: float | None = None, trust_signature: dict | None = None) -> dict | None:
         if self.vector_store is None:
-            return None  # O cache ainda está vazio
+            return None
 
         with self._lock:
             results = self.vector_store.similarity_search_with_score(query, k=1)
-
         if not results:
             return None
 
         doc, score = results[0]
-
         if score > self.distance_threshold:
-            print(f"  🐢 [Semantic Cache] CACHE MISS. Distância {score:.4f} é maior que o limite. Nuvem acionada.")
+            print(f"  🐢 [Semantic Cache] MISS. Distância {score:.4f} acima do limite.")
             return None
 
-        # Guarda anti-poisoning: mesmo com texto parecido, um valor de estorno muito
-        # diferente indica que são casos distintos (o texto templatizado das
-        # evidências pode colapsar disputas diferentes no espaço vetorial).
-        cached_amount = doc.metadata.get("approved_refund_amount")
-        if current_amount and cached_amount is not None:
-            drift = abs(cached_amount - current_amount) / current_amount
-            if drift > self.amount_tolerance:
-                print(
-                    f"  ⚠️ [Semantic Cache] Similaridade textual OK (dist {score:.4f}) mas valor incoerente "
-                    f"(cache: R$ {cached_amount:.2f} vs atual: R$ {current_amount:.2f}). Tratando como MISS."
-                )
+        # Filtro rígido por bucket — defesa em profundidade além da distância
+        # do embedding (que pode errar por imprecisão do modelo).
+        if trust_signature:
+            cached_sig = doc.metadata.get("trust_signature") or {}
+            mismatched = [k for k in trust_signature if cached_sig.get(k) != trust_signature[k]]
+            if mismatched:
+                print(f"  🛡️ [Semantic Cache] MISS. Perfil de confiança incompatível em {mismatched} "
+                    f"(cache: {cached_sig}, atual: {trust_signature}).")
                 return None
 
-        print(f"  ⚡ [Semantic Cache] CACHE HIT! Distância L2: {score:.4f}. Reaproveitando inferência.")
+        # Nunca reaproveita automaticamente um veredito que já pedia revisão
+        # humana ou que veio de uma falha dupla de API — essas decisões são
+        # inerentemente incertas e não deveriam virar precedente automático.
+        if doc.metadata.get("recommended_action") in ("escalar_humano", "erro_api_duplo"):
+            print("  🛡️ [Semantic Cache] MISS. Veredito em cache exige revisão humana, não reaproveitado.")
+            return None
+
+        cached_total = doc.metadata.get("dispute_amount_total")
+        if current_amount and cached_total is not None and current_amount > 0:
+            drift = abs(cached_total - current_amount) / current_amount
+            if drift > self.amount_tolerance:
+                print(f"  ⚠️ [Semantic Cache] MISS. Teto incoerente (cache: R$ {cached_total:.2f} vs atual: R$ {current_amount:.2f}).")
+                return None
+
+        print(f"  ⚡ [Semantic Cache] HIT! Distância L2: {score:.4f}.")
         return doc.metadata
 
-    def build_cache_key(self, query_masked: str, telemetry_data: str) -> str:
-        """
-        Monta uma Chave Composta. Isso previne o 'Cache Poisoning' baseado só em
-        texto: a telemetria/evidências entram na chave, não só a queixa.
-        """
-        return f"[Queixa]: {query_masked}\n[Evidências]: {telemetry_data}"
+    def build_cache_key(self, query_masked: str, telemetry_text: str, trust_signature_text: str) -> str:
+        """Note: não recebe mais o texto cru do histórico do cliente — só a
+        queixa mascarada, a telemetria (fatos do ticket) e a assinatura
+        bucketizada de confiança."""
+        return f"[Queixa]: {query_masked}\n{trust_signature_text}\n[Evidências Logísticas]: {telemetry_text}"
 
     @traceable(run_type="tool", name="Salvar_no_Semantic_Cache")
-    def save_to_cache(
-        self,
-        query: str,
-        action: str,
-        justification: str,
-        approved_refund_amount: float | None = None,
-        liability: str | None = None,
-    ):
-        """
-        Salva a queixa+evidências (vetorizada) e o veredito completo para uso futuro,
-        persistindo em disco para sobreviver a restarts do processo.
-        """
+    def save_to_cache(self, query, action, justification, approved_refund_amount=None,
+                    liability=None, dispute_amount_total=None, trust_signature=None):
+        if action in ("escalar_humano", "erro_api_duplo"):
+            print("  🛡️ [Semantic Cache] Não cacheando: decisão exige revisão humana / falha de API.")
+            return
+
         metadata = {"recommended_action": action, "justification": justification}
         if approved_refund_amount is not None:
             metadata["approved_refund_amount"] = approved_refund_amount
         if liability is not None:
             metadata["liability"] = liability
+        if dispute_amount_total is not None:
+            metadata["dispute_amount_total"] = dispute_amount_total
+        if trust_signature is not None:
+            metadata["trust_signature"] = trust_signature
 
         doc = Document(page_content=query, metadata=metadata)
-
         with self._lock:
             if self.vector_store is None:
-                self.vector_store = FAISS.from_documents(
-                    [doc],
-                    self.embeddings,
-                    normalize_L2=True,
-                )
+                self.vector_store = FAISS.from_documents([doc], self.embeddings, normalize_L2=True)
             else:
                 self.vector_store.add_documents([doc])
-
             self.vector_store.save_local(CACHE_DIR)
-
-        print(f"  💾 [Semantic Cache] Padrão salvo e persistido em {CACHE_DIR}.")
+        print(f"  💾 [Semantic Cache] Padrão salvo em {CACHE_DIR}.")
 
 
 # Instância global (Singleton) para ser importada pelos agentes

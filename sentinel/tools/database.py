@@ -6,6 +6,37 @@ from langchain_core.tools import tool
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 DB_PATH = BASE_DIR / "data" / "sentinel.duckdb"
 
+
+def get_customer_profile(customer_id: str) -> dict | None:
+    """Carrega atributos estruturados usados pelas políticas de risco."""
+    try:
+        with duckdb.connect(str(DB_PATH), read_only=True) as conn:
+            result = conn.execute(
+                """
+                SELECT account_age_days, total_orders, lifetime_value_brl,
+                    account_type, previous_disputes, no_show_count, risk_score
+                FROM customer_profiles
+                WHERE customer_id = ?
+                """,
+                [customer_id],
+            ).fetchone()
+
+        if not result:
+            return None
+
+        age, orders, ltv, account_type, disputes, no_shows, risk = result
+        return {
+            "account_age_days": age,
+            "total_orders": orders,
+            "lifetime_value_brl": float(ltv),
+            "account_type": account_type,
+            "previous_disputes": disputes,
+            "no_show_count": no_shows,
+            "risk_score": str(risk),
+        }
+    except Exception:
+        return None
+
 # ==========================================
 # 1. FERRAMENTA: TELEMETRIA LOGÍSTICA
 # ==========================================
@@ -62,36 +93,19 @@ def get_customer_history(customer_id: str) -> str:
     USE ESTA FERRAMENTA para analisar risco de fraude, churn e reincidência.
     """
     try:
-        with duckdb.connect(str(DB_PATH), read_only=True) as conn:
-            query = """
-                SELECT 
-                    account_age_days, 
-                    total_orders, 
-                    lifetime_value_brl, 
-                    account_type, 
-                    previous_disputes, 
-                    no_show_count, 
-                    risk_score
-                FROM customer_profiles
-                WHERE customer_id = ?
-            """
-            result = conn.execute(query, [customer_id]).fetchone()
-            
-            if not result:
-                return f"Nenhum cliente encontrado com o ID {customer_id}."
-            
-            # Desempacotamento na exata ordem do SELECT
-            age, orders, ltv, acc_type, disputes, no_shows, risk = result
-            
-            return (
-                f"[PERFIL E HISTÓRICO DO CLIENTE] ID: {customer_id}\n"
-                f"- Tipo de Conta: {acc_type}\n"
-                f"- Idade da conta: {age} dias\n"
-                f"- Total de pedidos realizados: {orders}\n"
-                f"- Lifetime Value (Total Gasto): R$ {ltv:.2f}\n"
-                f"- Disputas/estornos anteriores: {disputes}\n"
-                f"- Ausências na entrega (No-Show): {no_shows} vezes\n"
-                f"- Score de Risco Algorítmico: {risk}"
-            )
+        profile = get_customer_profile(customer_id)
+        if not profile:
+            return f"Nenhum cliente encontrado com o ID {customer_id}."
+
+        return (
+            f"[PERFIL E HISTÓRICO DO CLIENTE] ID: {customer_id}\n"
+            f"- Tipo de Conta: {profile['account_type']}\n"
+            f"- Idade da conta: {profile['account_age_days']} dias\n"
+            f"- Total de pedidos realizados: {profile['total_orders']}\n"
+            f"- Lifetime Value (Total Gasto): R$ {profile['lifetime_value_brl']:.2f}\n"
+            f"- Disputas/estornos anteriores: {profile['previous_disputes']}\n"
+            f"- Ausências na entrega (No-Show): {profile['no_show_count']} vezes\n"
+            f"- Score de Risco Algorítmico: {profile['risk_score']}"
+        )
     except Exception as e:
         return f"Erro ao acessar banco de clientes: {str(e)}"

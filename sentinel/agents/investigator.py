@@ -8,6 +8,9 @@ from sentinel.schemas.state import DisputeState
 from sentinel.tools.database import get_delivery_telemetry, get_customer_history
 from sentinel.core.privacy import mask_pii
 from sentinel.core.cache import semantic_cache
+from sentinel.tools.database import get_delivery_telemetry, get_customer_history, get_customer_profile
+from sentinel.core.cache_signature import build_trust_signature, signature_to_text
+from sentinel.core.sandbox import apply_sandbox_override
 
 # ==========================================
 # 1. CONTRATO DE SAÍDA (EVOLUÇÃO FINOPS)
@@ -52,6 +55,7 @@ def investigator_node(state: DisputeState) -> dict:
     sanitized_messages = []
     
     sandbox_receipt = state.get("sandbox_receipt_json", "")
+    sandbox_active = bool(sandbox_receipt)
     
     for msg in state["messages"]:
         if isinstance(msg, HumanMessage):
@@ -87,21 +91,6 @@ def investigator_node(state: DisputeState) -> dict:
         else:
             sanitized_messages.append(msg)
             
-    # Se o ToolNode já devolveu dados, estamos prontos para checar o FAISS
-    evidence_text = "\n".join(tool_responses)
-    
-    if tool_responses:
-        print("  🔍 [Investigador] Evidências detectadas. Consultando Semantic Cache...")
-        cache_key = semantic_cache.build_cache_key(masked_query, evidence_text)
-        cached_result = semantic_cache.check_cache(cache_key)
-        
-        if cached_result:
-            # CACHE HIT! O custo desta execução acabou de cair para R$ 0,00
-            return {
-                "recommended_action": cached_result["recommended_action"],
-                "human_in_the_loop_required": False, # Assumimos a confiança do cache passado
-                "messages": [AIMessage(content=f"Parecer Baseado em Dados (VIA CACHE): {cached_result['justification']}")]
-            }
     
     # ---------------------------------------------------------
     # 3. PREPARAÇÃO DA CHAMADA (CACHE MISS)
@@ -111,6 +100,8 @@ def investigator_node(state: DisputeState) -> dict:
     
     customer_id = state.get("customer_id")
     ticket_id = state.get("ticket_id")
+    
+    evidence_text = "\n".join(tool_responses)
     
     system_prompt = f"""Você é um Investigador Sênior de Prevenção a Perdas, Compliance e Risco Corporativo.
             Valor Total do Pedido (Teto Máximo): R$ {amount} | Intenção: {intent} | Cliente: {customer_id} | Ticket: {ticket_id}
@@ -137,9 +128,25 @@ def investigator_node(state: DisputeState) -> dict:
         if response.tool_calls and response.tool_calls[0]["name"] == "InvestigatorOutput":
             args = response.tool_calls[0]["args"]
             
-            if tool_responses:
-                cache_key = semantic_cache.build_cache_key(masked_query, evidence_text)
-                semantic_cache.save_to_cache(cache_key, args["recommended_action"], args["justification"])
+            if tool_responses and not sandbox_active:
+                # Reconstrói a mesma "forma" de chave que o hydrate usa, com os
+                # mesmos dados de origem (perfil + telemetria real), nunca com
+                # o histórico bruto do cliente.
+                profile = get_customer_profile(customer_id)
+                telemetry_only = get_delivery_telemetry.invoke({"ticket_id": ticket_id})
+                if profile:
+                    trust_signature = build_trust_signature(profile)
+                    trust_text = signature_to_text(trust_signature)
+                    cache_key = semantic_cache.build_cache_key(masked_query, telemetry_only, trust_text)
+                    semantic_cache.save_to_cache(
+                        query=cache_key,
+                        action=args["recommended_action"],
+                        justification=args["justification"],
+                        approved_refund_amount=args.get("approved_refund_amount", 0.0),
+                        liability=args.get("liability", "nenhum"),
+                        dispute_amount_total=amount,
+                        trust_signature=trust_signature,
+                    )
             
             tag_modo = " (VIA SLM LOCAL)" if is_fallback else ""
             parecer_final = (

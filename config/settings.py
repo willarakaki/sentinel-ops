@@ -1,4 +1,5 @@
 import yaml
+import os
 from pathlib import Path
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -52,6 +53,7 @@ class Settings(BaseSettings):
             
         return DisputeMatrixConfig(**yaml_data)
 
+enable_sandbox_mode: bool = os.getenv("SENTINEL_ENABLE_SANDBOX", "false").lower() == "true"
 
 # Instanciação global validada
 settings = Settings()
