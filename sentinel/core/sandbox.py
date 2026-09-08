@@ -1,6 +1,7 @@
 # sentinel/core/sandbox.py
 import json
 import logging
+
 from config.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -22,7 +23,7 @@ def apply_sandbox_override(real_telemetry_text: str, sandbox_receipt_json: str, 
 
     try:
         items = json.loads(sandbox_receipt_json)
-    except Exception:
+    except (TypeError, ValueError, json.JSONDecodeError):
         logger.error("sandbox_receipt_json inválido para o ticket %s.", ticket_id)
         return real_telemetry_text
 

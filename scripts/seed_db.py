@@ -1,6 +1,8 @@
-import duckdb
-import os
 import json
+import os
+
+import duckdb
+
 
 def seed_database():
     print("🌱 Iniciando o Povoamento do Banco de Dados (DuckDB V4 - Itemized JSON)...")

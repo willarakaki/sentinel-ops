@@ -1,8 +1,10 @@
 import os
 import threading
+
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 from langsmith import traceable
+
 from sentinel.core.llm_factory import LLMFactory
 
 CACHE_DIR = os.path.join(os.getcwd(), "data", "faiss_cache_v2")
@@ -38,7 +40,7 @@ class SemanticCache:
                     # após o primeiro save+reload.
                 )
                 print(f"  🧠 [Cache] Banco FAISS carregado do disco ({CACHE_DIR}).")
-            except Exception as e:
+            except (OSError, RuntimeError, ValueError) as e:
                 # Protege contra diretório corrompido (ex.: processo morreu no meio
                 # de um save_local anterior).
                 print(f"  ⚠️ [Cache] Falha ao carregar cache do disco ({e}). Iniciando vazio.")

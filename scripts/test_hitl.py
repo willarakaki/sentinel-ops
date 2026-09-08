@@ -1,6 +1,7 @@
 import sys
 import warnings
 from pathlib import Path
+
 from langchain_core.messages import HumanMessage
 
 warnings.filterwarnings("ignore")
@@ -8,6 +9,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.append(str(BASE_DIR))
 
 from sentinel.graph import sentinel_app
+
 
 def run_hitl_simulation():
     print("Iniciando Simulação Human-in-the-Loop (HITL)...\n")

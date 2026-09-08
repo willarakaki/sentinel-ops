@@ -10,7 +10,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.append(str(BASE_DIR))
 
 from langchain_core.messages import HumanMessage
+
 from sentinel.agents.triage import triage_node
+
 
 def run_triage_tests():
     print("Iniciando Validação do Agente de Triagem (SLM Local)...\n")
