@@ -1,7 +1,8 @@
 import sys
 import warnings
 from pathlib import Path
-from langchain_core.messages import HumanMessage, AIMessage
+
+from langchain_core.messages import AIMessage, HumanMessage
 
 # Suprime avisos para manter o terminal limpo
 warnings.filterwarnings("ignore")
@@ -11,6 +12,7 @@ sys.path.append(str(BASE_DIR))
 
 # Importa o orquestrador principal compilado
 from sentinel.graph import sentinel_app
+
 
 def format_stream_output(stream):
     """Itera sobre os passos do LangGraph e imprime a jornada com foco no ReAct."""

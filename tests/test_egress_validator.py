@@ -1,5 +1,7 @@
 import pytest
-from sentinel.core.egress_validator import validate_egress, EgressValidationError
+
+from sentinel.core.egress_validator import EgressValidationError, validate_egress
+
 
 # 1. Teste do Caminho Feliz (Happy Path)
 def test_validacao_sucesso_reembolso_parcial():

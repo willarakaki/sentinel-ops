@@ -5,8 +5,10 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.append(str(BASE_DIR))
 
-from sentinel.core.llm_factory import LLMFactory
 from langchain_core.output_parsers import StrOutputParser
+
+from sentinel.core.llm_factory import LLMFactory
+
 
 def run_smoke_test():
     print("Iniciando Smoke Test dos Motores de IA do SentinelOps...\n")
@@ -30,7 +32,7 @@ def run_smoke_test():
         
         print("=== TESTE CONCLUÍDO: Todos os motores estão operacionais! ===")
         
-    except Exception as e:
+    except (ConnectionError, OSError, RuntimeError, TimeoutError, ValueError) as e:
         print(f"\n[ERRO CRÍTICO] Falha na integração: {e}")
         print("Verifique se o 'docker-compose up -d' está rodando e se sua GOOGLE_API_KEY está no .env.")
 

@@ -1,5 +1,5 @@
-import pytest
-from sentinel.agents.security_shield import check_payload_size, MAX_INPUT_CHARS
+from sentinel.agents.security_shield import MAX_INPUT_CHARS, check_payload_size
+
 
 def test_payload_dentro_do_limite_deve_passar():
     texto_valido = "Meu lanche chegou frio e o refrigerante veio violado."

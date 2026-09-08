@@ -1,6 +1,8 @@
 from deepeval.metrics import GEval
 from deepeval.test_case import LLMTestCase, LLMTestCaseParams
+
 from tests.judge import GeminiJudge
+
 
 def test_customer_empathy_and_tone():
     # Simulamos uma resposta fria e robótica que uma IA padrão daria

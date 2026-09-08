@@ -1,7 +1,9 @@
 from deepeval import assert_test
 from deepeval.metrics import GEval
 from deepeval.test_case import LLMTestCase, LLMTestCaseParams
+
 from tests.judge import GeminiJudge
+
 
 def test_high_risk_policy_enforcement():
     contexto_do_banco = [

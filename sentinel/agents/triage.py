@@ -1,9 +1,11 @@
 import json
+
+from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
-from langchain_core.messages import SystemMessage, HumanMessage
 
 from sentinel.core.llm_factory import LLMFactory
 from sentinel.schemas.state import DisputeState
+
 
 # ==========================================
 # 1. CONTRATO DE SAÍDA DO SLM
@@ -89,7 +91,7 @@ def triage_node(state: DisputeState) -> dict:
             "risk_level": validated_triage.risk_level
         }
         
-    except Exception as e:
+    except (json.JSONDecodeError, TypeError, ValueError, RuntimeError, OSError) as e:
         # Padrão Sênior de Resiliência: Fail-Safe para bloqueio humano
         print(f"[ERRO NA TRIAGEM SLM] {e}. Aplicando Fallback de Segurança (Risco Elevado).")
         raw_response = getattr(response, "content", None)

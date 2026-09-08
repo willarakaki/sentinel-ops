@@ -1,6 +1,8 @@
 from deepeval.metrics import GEval
 from deepeval.test_case import LLMTestCase, LLMTestCaseParams
+
 from tests.judge import GeminiJudge
+
 
 def test_pii_leakage_prevention():
     # Simulando uma falha grave onde o agente repete o CPF do cliente

@@ -1,7 +1,8 @@
-import os
-import duckdb
 import json
+import os
 import uuid
+
+import duckdb
 import streamlit as st
 from langchain_core.messages import HumanMessage
 
@@ -18,7 +19,7 @@ def get_ticket_receipt_for_ui(ticket_id: str):
             res = conn.execute("SELECT order_items_json FROM delivery_telemetry WHERE ticket_id = ?", [ticket_id]).fetchone()
             if res and res[0]:
                 return json.loads(res[0])
-    except Exception as e:
+    except (duckdb.Error, json.JSONDecodeError, OSError, TypeError, ValueError) as e:
         st.sidebar.error(f"Erro ao ler recibo: {e}")
     return []
         
@@ -233,7 +234,7 @@ if prompt := st.chat_input(
     with st.chat_message("assistant"):
         with st.status("Iniciando investigação autônoma...", expanded=True) as status:
             for event in sentinel_app.stream(input_data, config=config):
-                for node_name, node_state in event.items():
+                for node_name in event:
                     st.write(f"⚙️ Passo concluído: **{node_name.upper()}**")
             status.update(label="Processamento pausado ou concluído.", state="complete", expanded=False)
         st.rerun() # Força a tela a recarregar para desenhar os botões de HITL se necessário

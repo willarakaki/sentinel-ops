@@ -1,6 +1,7 @@
-import duckdb
 import json
 from pathlib import Path
+
+import duckdb
 from langchain_core.tools import tool
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -34,7 +35,7 @@ def get_customer_profile(customer_id: str) -> dict | None:
             "no_show_count": no_shows,
             "risk_score": str(risk),
         }
-    except Exception:
+    except (duckdb.Error, OSError, TypeError, ValueError):
         return None
 
 # ==========================================
@@ -68,7 +69,7 @@ def get_delivery_telemetry(ticket_id: str) -> str:
                 items = json.loads(order_json_str) if order_json_str else []
                 for item in items:
                     receipt_formatted += f"  - {item['item']}: R$ {item['price']:.2f}\n"
-            except:
+            except (KeyError, TypeError, ValueError, json.JSONDecodeError):
                 receipt_formatted += "  - Erro ao ler recibo.\n"
             
             return (
@@ -80,8 +81,8 @@ def get_delivery_telemetry(ticket_id: str) -> str:
                 f"- Tempo de espera: {wait_time} min.\n"
                 f"{receipt_formatted}"
             )
-    except Exception as e:
-        return f"Erro ao acessar banco de telemetria: {str(e)}"
+    except (duckdb.Error, OSError, TypeError, ValueError) as e:
+        return f"Erro ao acessar banco de telemetria: {e!s}"
 
 # ==========================================
 # 2. FERRAMENTA: HISTÓRICO E PERFIL DO CLIENTE
@@ -107,5 +108,5 @@ def get_customer_history(customer_id: str) -> str:
             f"- Ausências na entrega (No-Show): {profile['no_show_count']} vezes\n"
             f"- Score de Risco Algorítmico: {profile['risk_score']}"
         )
-    except Exception as e:
-        return f"Erro ao acessar banco de clientes: {str(e)}"
+    except (duckdb.Error, OSError, TypeError, ValueError) as e:
+        return f"Erro ao acessar banco de clientes: {e!s}"

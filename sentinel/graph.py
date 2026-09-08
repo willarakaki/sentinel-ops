@@ -1,24 +1,30 @@
+import json
 import os
 import sqlite3
+
 import duckdb
-import json
-from langgraph.graph import StateGraph, START, END
-from langgraph.checkpoint.sqlite import SqliteSaver
-from langgraph.prebuilt import ToolNode
 from langchain_core.messages import AIMessage
+from langgraph.checkpoint.sqlite import SqliteSaver
+from langgraph.graph import END, START, StateGraph
+from langgraph.prebuilt import ToolNode
+
+from config.settings import dispute_rules
+from sentinel.agents.investigator import investigator_node
+from sentinel.agents.security_shield import security_shield_node
+from sentinel.agents.triage import triage_node
+from sentinel.core.cache import semantic_cache
+from sentinel.core.cache_signature import build_trust_signature, signature_to_text
+from sentinel.core.egress_validator import EgressValidationError, validate_egress
+from sentinel.core.privacy import mask_pii
+from sentinel.core.prompt_guard import _load_prompt_guard
 
 # Importações do nosso ecossistema
 from sentinel.schemas.state import DisputeState
-from sentinel.agents.triage import triage_node
-from sentinel.agents.investigator import investigator_node
-from config.settings import dispute_rules
-from sentinel.tools.database import get_customer_profile, get_delivery_telemetry, get_customer_history
-from sentinel.agents.security_shield import security_shield_node
-from sentinel.core.cache import semantic_cache
-from sentinel.core.privacy import mask_pii
-from sentinel.core.cache_signature import build_trust_signature, signature_to_text
-from sentinel.core.egress_validator import EgressValidationError, validate_egress
-from sentinel.core.prompt_guard import _load_prompt_guard
+from sentinel.tools.database import (
+    get_customer_history,
+    get_customer_profile,
+    get_delivery_telemetry,
+)
 
 os.makedirs("data", exist_ok=True)
 print("⚙️ Pré-carregando Prompt Guard 2...")
@@ -84,7 +90,7 @@ def hydrate_and_check_cache_node(state: DisputeState) -> dict:
     try:
         telemetry = get_delivery_telemetry.invoke({"ticket_id": ticket_id})
         profile = get_customer_profile(customer_id)
-    except Exception as e:
+    except (duckdb.Error, OSError, RuntimeError) as e:
         print(f" ⚠️ [Hidratação] Falha ao buscar dados diretamente ({e}). Delegando ao Investigador.")
         return {}
 
@@ -101,7 +107,7 @@ def hydrate_and_check_cache_node(state: DisputeState) -> dict:
             if res and res[0]:
                 items = json.loads(res[0])
                 receipt_total_amount = sum(float(i.get("price", 0.0)) for i in items)
-    except Exception as e:
+    except (duckdb.Error, json.JSONDecodeError, OSError, TypeError, ValueError) as e:
         print(f"  ⚠️ Erro ao calcular total do recibo para Validação: {e}")
 
     trust_signature = build_trust_signature(profile)
@@ -188,7 +194,7 @@ def route_after_triage(state: DisputeState) -> str:
             if res_ticket:
                 is_age_restricted = res_ticket[0]
                 order_items_str = res_ticket[1]
-    except Exception as e:
+    except (duckdb.Error, OSError, RuntimeError) as e:
         print(f" ⚠️ Erro ao hidratar dados: {e}")
 
     db_order_total = 0.0
@@ -197,7 +203,7 @@ def route_after_triage(state: DisputeState) -> str:
         if json_to_parse:
             items = json.loads(json_to_parse)
             db_order_total = sum(float(i.get("price", 0.0)) for i in items)
-    except Exception as e:
+    except (json.JSONDecodeError, TypeError, ValueError) as e:
         print(f" ⚠️ Erro ao parsear JSON no Roteador: {e}")
 
     print(f" >> Risco LLM: {llm_risk} | Risco DB: {db_risk} | Restrito: {is_age_restricted} | Teto Solicitado: R$ {amount} | Teto Real: R$ {db_order_total}")
@@ -230,7 +236,7 @@ def route_after_triage(state: DisputeState) -> str:
 
     if db_risk == "low" and amount <= micro_max:
         if amount <= db_order_total:
-            print(f" >> 💰 FINOPS: Risco Baixo, Valor Micro e Coerente com Recibo. Roteando para AUTO REFUND.")
+            print(" >> 💰 FINOPS: Risco Baixo, Valor Micro e Coerente com Recibo. Roteando para AUTO REFUND.")
             return "auto_refund"
         else:
             print(f" >> 🚨 ANOMALIA FINANCEIRA: Tentativa de estorno (R$ {amount}) maior que o recibo real (R$ {db_order_total}). Interceptando Fraude de Front-end!")

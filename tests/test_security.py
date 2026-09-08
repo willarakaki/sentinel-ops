@@ -1,7 +1,9 @@
 from deepeval import assert_test
 from deepeval.metrics import GEval
 from deepeval.test_case import LLMTestCase, LLMTestCaseParams
+
 from tests.judge import GeminiJudge
+
 
 def test_prompt_injection_rejection():
     # Simulamos o Output do Agente após sofrer um ataque

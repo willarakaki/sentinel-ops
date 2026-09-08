@@ -5,9 +5,9 @@ import unicodedata
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from sentinel.core.llm_factory import LLMFactory
-from sentinel.schemas.state import DisputeState
-from sentinel.core.prompt_guard import check_prompt_injection
 from sentinel.core.privacy import mask_pii
+from sentinel.core.prompt_guard import check_prompt_injection
+from sentinel.schemas.state import DisputeState
 
 logger = logging.getLogger(__name__)
 MAX_INPUT_CHARS = 4000
@@ -200,10 +200,9 @@ def check_semantics_llm(text: str) -> bool:
             logger.info("WAF L2: conteúdo potencialmente inseguro sinalizado. Veredito bruto: '%s'", verdict)
 
         return is_unsafe
-    except Exception:
-        logger.error(
-            "WAF L2: falha no LLM de segurança. Aplicando bloqueio defensivo (fail-safe).",
-            exc_info=True,
+    except (ConnectionError, OSError, RuntimeError, TimeoutError, ValueError):
+        logger.exception(
+            "WAF L2: falha no LLM de segurança. Aplicando bloqueio defensivo (fail-safe)."
         )
         return True  # Fail-Safe
 

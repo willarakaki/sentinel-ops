@@ -1,7 +1,10 @@
 import re
 from types import SimpleNamespace
+
 from deepeval.models.base_model import DeepEvalBaseLLM
+
 from sentinel.core.llm_factory import LLMFactory
+
 
 class GeminiJudge(DeepEvalBaseLLM):
     """Wrapper corporativo integrando o DeepEval à nossa LLMFactory e blindando contra respostas multimodais."""

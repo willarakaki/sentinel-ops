@@ -1,9 +1,9 @@
-import yaml
-import os
 from pathlib import Path
+
+import yaml
+from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from dotenv import load_dotenv
 
 # 1. Definimos o caminho absoluto do projeto para não haver erro de "arquivo não encontrado"
 BASE_DIR = Path(__file__).resolve().parent.parent

@@ -1,0 +1,81 @@
+name: SentinelOps CI Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  # ==========================================
+  # JOB 1: LINTING & CODE QUALITY (Ruff)
+  # ==========================================
+  code-quality:
+    name: Linting (Ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Ruff
+        run: pip install ruff
+
+      - name: Run Ruff Linter
+        # Verifica erros de sintaxe, imports não usados e complexidade
+        run: ruff check .
+
+  # ==========================================
+  # JOB 2: SECURITY SCANNING - SAST (Bandit)
+  # ==========================================
+  security-scan:
+    name: Static Security (Bandit)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Bandit
+        run: pip install bandit
+
+      - name: Run Bandit SAST
+        # Varre a pasta 'sentinel' ignorando severidades baixas (-ll)
+        run: bandit -r sentinel/ -ll
+
+  # ==========================================
+  # JOB 3: BUSINESS LOGIC TESTS (Pytest)
+  # ==========================================
+  unit-tests:
+    name: Business Logic (Pytest)
+    runs-on: ubuntu-latest
+    # Garante que os testes só rodam se o código estiver limpo e seguro
+    needs: [code-quality, security-scan] 
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Run Pytest (L0 WAF & Egress Validation)
+        env:
+          PYTHONPATH: .
+        run: pytest tests/ -v

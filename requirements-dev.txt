@@ -1,0 +1,10 @@
+-r requirements.txt
+
+deepeval==4.2.0
+pytest==9.1.1
+pytest-asyncio==1.4.0
+pytest-repeat==0.9.4
+pytest-rerunfailures==16.6
+pytest-xdist==3.8.0
+ruff
+bandit

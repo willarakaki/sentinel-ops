@@ -1,6 +1,7 @@
-import duckdb
 import os
 from pathlib import Path
+
+import duckdb
 
 # Define o caminho absoluto para salvar o arquivo na pasta 'data'
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -80,7 +81,7 @@ def seed_database():
 
         print(f"✅ Data Lake populado com sucesso em: {DB_PATH}")
         
-    except Exception as e:
+    except (duckdb.Error, OSError) as e:
         print(f"❌ Erro ao popular banco: {e}")
     finally:
         conn.close()

@@ -46,7 +46,7 @@ graph TD
         G -->|API Cloud| K[Google Gemini 3.6 Flash]
     end
 
-    K -->|HTTP 429 / Timeout / Resposta Vazia ou Inválida| L(🔄 Circuit Breaker: Fallback Qwen 2.5)
+    K -->|HTTP 429 / Timeout / Resposta Vazia ou Inválida| L(🔄 Circuit Breaker: Fallback GPT-OSS-20B GROQ)
     K -->|Aprovado / Negado| M[💰 Veredito Final & Liability]
     G2 -->|Cache HIT| M
     L --> M
@@ -212,7 +212,7 @@ Abaixo estão os cenários oficiais de homologação. Utilize a barra lateral do
 Ligue o botão **"🧪 Modo Sandbox"** na interface **e** garanta que `SENTINEL_ENABLE_SANDBOX=true` no ambiente.
 
 | **Teste (O que digitar no Chat)** | **Ticket / Cliente / Carrinho Sandbox** | **Retorno Esperado** | **📸 Evidência** |
-|---|---|---|---|
+|---|---|---|---|git
 | **Reembolso Parcial Exato:** *"A sacola tava lacrada, mas faltou minha batata."* | `TKT-003` / `VIP`<br><br>*Combo R\$ 80 + Batata R\$ 15* | ✅ **Parcial:** Extrai R$ 15.00 matematicamente. Culpa: Restaurante. | `[Adicione Imagem]` |
 | **Proteção Contra Alucinação:** *"Faltou a batata, paguei 50 nela!"* | `TKT-003` / `VIP`<br><br>*Batata R\$ 15* | ✅ **Ancoragem:** IA ignora os R\$ 50 do chat, baseia-se no banco e devolve R\$ 15.00. | `[Adicione Imagem]` |
 | **Reembolso parcial múltiplos itens:** *"Faltou minha água, e meu pudim"* | `TKT-003` / `VIP`<br><br>*Pizza R\$ 80 + Água R\$ 8 + Pudim R\$ 11* | ✅ **Parcial:** Extrai R\$ 19.00 matematicamente. Culpa: Restaurante. | `[Adicione Imagem]` |
