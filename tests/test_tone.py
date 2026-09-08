@@ -1,4 +1,3 @@
-from deepeval import assert_test
 from deepeval.metrics import GEval
 from deepeval.test_case import LLMTestCase, LLMTestCaseParams
 from tests.judge import GeminiJudge
@@ -21,5 +20,9 @@ def test_customer_empathy_and_tone():
         threshold=0.5
     )
     
-    # Este teste DEVE falhar, pois a 'resposta_fria' viola nossas regras de empatia
-    assert_test(test_case, [tone_metric])
+    # Caso negativo: a métrica deve detectar a ausência de empatia.
+    score = tone_metric.measure(test_case)
+    assert score < tone_metric.threshold, (
+        f"A resposta fria foi aceita pela métrica: score={score:.2f}, "
+        f"threshold={tone_metric.threshold:.2f}"
+    )

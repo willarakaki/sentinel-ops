@@ -7,8 +7,13 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from sentinel.core.llm_factory import LLMFactory
 from sentinel.schemas.state import DisputeState
 from sentinel.core.prompt_guard import check_prompt_injection
+from sentinel.core.privacy import mask_pii
 
 logger = logging.getLogger(__name__)
+MAX_INPUT_CHARS = 4000
+def check_payload_size(text: str) -> bool:
+    """Retorna True se o texto exceder o limite de proteção contra DoW/ReDoS."""
+    return len(text) > MAX_INPUT_CHARS
 
 # ==========================================
 # 0. NORMALIZAÇÃO (defesa contra evasão via Unicode)
@@ -192,7 +197,7 @@ def check_semantics_llm(text: str) -> bool:
         is_unsafe = primeira_palavra.startswith("unsafe")
 
         if is_unsafe:
-            logger.warning("WAF L2: prompt injection semântica detectada. Veredito bruto: '%s'", verdict)
+            logger.info("WAF L2: conteúdo potencialmente inseguro sinalizado. Veredito bruto: '%s'", verdict)
 
         return is_unsafe
     except Exception:
@@ -210,20 +215,31 @@ def security_shield_node(state: DisputeState) -> dict:
     logger.info("Executando nó Security Shield (Firewall de IA).")
 
     raw_message = state["messages"][-1].content
+    
+    if check_payload_size(raw_message):
+        logger.warning("WAF: entrada rejeitada por exceder %d caracteres.", MAX_INPUT_CHARS)
+        return {
+            "intent": "entrada_excessiva",
+            "risk_level": "elevado",
+            "recommended_action": "escalar_humano",
+        }
+
     customer_message = _normalize_text(raw_message)
+    masked_message = mask_pii(customer_message)
 
     # L1: heurística regex (quase 0ms)
     if check_heuristics(customer_message):
         return {"intent": "ataque_cibernetico", "risk_level": "critico", "recommended_action": "bloqueio_seguranca"}
 
-    # Camada 1: Llama Guard 3 — conteúdo tóxico/genérico (taxonomia MLCommons,
-    # NÃO é especializado em prompt injection, mantido por decisão do time)
-    if check_semantics_llm(customer_message):
-        return {"intent": "ataque_cibernetico", "risk_level": "critico", "recommended_action": "bloqueio_seguranca"}
+    # Camada 1: Llama Guard 3 — conteúdo tóxico/genérico (taxonomia MLCommons).
+    # É apenas observacional: não deve bloquear reclamações legítimas de
+    # reembolso, que o modelo frequentemente classifica como unsafe.
+    if check_semantics_llm(masked_message):
+        logger.info("WAF L2: conteúdo potencialmente inseguro sinalizado; seguindo para análise de injection.")
 
     # Camada 2: Prompt Guard 2 — especializado em injection/jailbreak,
     # incluindo tokenização adversarial (o padrão do TESTE 03)
-    if check_prompt_injection(customer_message):
+    if check_prompt_injection(masked_message):
         return {"intent": "ataque_cibernetico", "risk_level": "critico", "recommended_action": "bloqueio_seguranca"}
 
     logger.info("WAF: tráfego limpo. Roteando para fluxo de negócios.")

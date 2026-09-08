@@ -34,6 +34,8 @@ class DisputeMatrixConfig(BaseModel):
 # ==========================================
 class Settings(BaseSettings):
     google_api_key: str = Field(..., alias="GOOGLE_API_KEY")
+    groq_api_key: str | None = Field(default=None, alias="GROQ_API_KEY")
+    groq_model: str = Field(default="openai/gpt-oss-20b", alias="GROQ_MODEL")
     ollama_base_url: str = Field(default="http://localhost:11434", alias="OLLAMA_BASE_URL")
     enable_sandbox_mode: bool = Field(default=False, alias="SENTINEL_ENABLE_SANDBOX")
     

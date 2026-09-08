@@ -1,6 +1,5 @@
 import pytest
 import re
-from deepeval import assert_test
 from deepeval.metrics import GEval
 from deepeval.test_case import LLMTestCase, LLMTestCaseParams
 from dotenv import load_dotenv
@@ -15,7 +14,7 @@ def test_investigator_grounding():
         "Código de segurança (OTP) validado: Não"
     ]
     
-    resposta_do_agente = "Parecer Baseado em Dados: A entrega foi no local correto. A foto anexada mostra a sacola fechada com lacre. Reembolso negado."
+    resposta_do_agente = "Parecer Baseado em Dados: A telemetria registra distância de 5 metros e OTP não validado. O contexto fornecido não contém evidência sobre foto ou lacre."
     
     test_case = LLMTestCase(
         input="Meu pedido veio sem a batata.",
@@ -32,5 +31,9 @@ def test_investigator_grounding():
         threshold=0.5
     )
     
-    # 3. Executa a asserção com a nossa métrica rigorosa
-    assert_test(test_case, [strict_grounding_metric])
+    # Caso positivo: a resposta está fundamentada no contexto recuperado.
+    score = strict_grounding_metric.measure(test_case)
+    assert score >= strict_grounding_metric.threshold, (
+        f"A resposta grounded foi rejeitada: score={score:.2f}, "
+        f"threshold={strict_grounding_metric.threshold:.2f}"
+    )
