@@ -163,7 +163,7 @@ with st.sidebar:
         
         # Limpamos a chave 'id' na hora de salvar no BD, pois o LLM não precisa dela
         clean_receipt_for_db = [{"item": i["item"], "price": i["price"]} for i in st.session_state.sandbox_receipt]
-        sandbox_json_str = json.dumps(clean_receipt_for_db)
+        sandbox_json_str = json.dumps(clean_receipt_for_db, ensure_ascii=False)
         receipt_items = clean_receipt_for_db
         
     else:

@@ -6,6 +6,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from sentinel.core.llm_factory import LLMFactory
 from sentinel.schemas.state import DisputeState
+from sentinel.core.prompt_guard import check_prompt_injection
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +47,10 @@ JAILBREAK_PATTERNS = [
     ("system_prompt", re.compile(r"\bsystem prompt\b", re.IGNORECASE)),
     ("modo_dev", re.compile(r"\bmodo (de )?desenvolvedor\b", re.IGNORECASE)),
     ("bypass", re.compile(r"\bbypass\b", re.IGNORECASE)),
-
+    ("comando_aprovacao_direta", re.compile(
+    r"\b(aprove|autorize|libere)\b.{0,20}\b(o reembolso|o estorno|a solicita[çc][ãa]o)\b.{0,20}\b(agora|imediatamente|j[áa])\b",
+    re.IGNORECASE)),
+    ("override_generico", re.compile(r"\bsystem\s*override\b", re.IGNORECASE)),
     # --- Reatribuição de papel / stripping de identidade ---
     # Caso direto: "você é o admin/sistema/desenvolvedor"
     ("reatribuicao_papel_direta", re.compile(
@@ -80,7 +84,8 @@ JAILBREAK_PATTERNS = [
         re.IGNORECASE | re.DOTALL)),
     # "[INSTRUÇÃO INTERNA: ...]" embutido no meio de uma reclamação normal
     ("instrucao_embutida", re.compile(
-        r"instru[çc][ãa]o (interna|do sistema)\s*:", re.IGNORECASE)),
+        r"instru[çc][ãa]o (interna|do sistema|para (a )?(ia|intelig[êe]ncia artificial))\s*:",
+        re.IGNORECASE)),
 
     # --- Fraude específica do domínio (forçar resolução/estorno favorável) ---
     ("fraude_mudanca_status", re.compile(
@@ -115,12 +120,18 @@ JAILBREAK_PATTERNS = [
 ]
 
 
+_LETTER_SPACING_PATTERN = re.compile(r'\b(?:\w[\s\-\._]){3,}\w\b')
+
+def _collapse_letter_spacing(text: str) -> str:
+    return _LETTER_SPACING_PATTERN.sub(lambda m: re.sub(r'[\s\-\._]', '', m.group(0)), text)
+
+
 def check_heuristics(text: str) -> bool:
-    """Retorna True se encontrar padrões maliciosos óbvios (Latência: ~0ms)."""
-    for categoria, pattern in JAILBREAK_PATTERNS:
-        if pattern.search(text):
-            logger.warning("WAF L1: padrão '%s' disparado.", categoria)
-            return True
+    for variant in (text, _collapse_letter_spacing(text)):
+        for categoria, pattern in JAILBREAK_PATTERNS:
+            if pattern.search(variant):
+                logger.warning("WAF L1: padrão '%s' disparado.", categoria)
+                return True
     return False
 
 
@@ -198,26 +209,22 @@ def check_semantics_llm(text: str) -> bool:
 def security_shield_node(state: DisputeState) -> dict:
     logger.info("Executando nó Security Shield (Firewall de IA).")
 
-    # Usa a ÚLTIMA mensagem do histórico, não a primeira — se
-    # `state["messages"]` acumula a conversa entre turnos, indexar [0]
-    # só protege a mensagem inicial. Confirme que isso bate com o seu
-    # grafo antes de assumir corrigido.
     raw_message = state["messages"][-1].content
     customer_message = _normalize_text(raw_message)
 
+    # L1: heurística regex (quase 0ms)
     if check_heuristics(customer_message):
-        return {
-            "intent": "ataque_cibernetico",
-            "risk_level": "critico",
-            "recommended_action": "bloqueio_seguranca",
-        }
+        return {"intent": "ataque_cibernetico", "risk_level": "critico", "recommended_action": "bloqueio_seguranca"}
 
+    # Camada 1: Llama Guard 3 — conteúdo tóxico/genérico (taxonomia MLCommons,
+    # NÃO é especializado em prompt injection, mantido por decisão do time)
     if check_semantics_llm(customer_message):
-        return {
-            "intent": "ataque_cibernetico",
-            "risk_level": "critico",
-            "recommended_action": "bloqueio_seguranca",
-        }
+        return {"intent": "ataque_cibernetico", "risk_level": "critico", "recommended_action": "bloqueio_seguranca"}
+
+    # Camada 2: Prompt Guard 2 — especializado em injection/jailbreak,
+    # incluindo tokenização adversarial (o padrão do TESTE 03)
+    if check_prompt_injection(customer_message):
+        return {"intent": "ataque_cibernetico", "risk_level": "critico", "recommended_action": "bloqueio_seguranca"}
 
     logger.info("WAF: tráfego limpo. Roteando para fluxo de negócios.")
     return {}

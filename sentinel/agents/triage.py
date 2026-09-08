@@ -70,6 +70,7 @@ def triage_node(state: DisputeState) -> dict:
     ]
     
     # 4. Executa a inferência
+    response = None
     try:
         response = slm.invoke(messages)
         
@@ -91,7 +92,8 @@ def triage_node(state: DisputeState) -> dict:
     except Exception as e:
         # Padrão Sênior de Resiliência: Fail-Safe para bloqueio humano
         print(f"[ERRO NA TRIAGEM SLM] {e}. Aplicando Fallback de Segurança (Risco Elevado).")
-        print(f"[DEBUG LOG] Resposta bruta do modelo que causou o erro: {response.content}")
+        raw_response = getattr(response, "content", None)
+        print(f"[DEBUG LOG] Resposta bruta do modelo que causou o erro: {raw_response!r}")
         return {
             "intent": "classificacao_falhou",
             "risk_level": "elevado"

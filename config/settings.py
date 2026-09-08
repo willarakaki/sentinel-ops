@@ -35,6 +35,7 @@ class DisputeMatrixConfig(BaseModel):
 class Settings(BaseSettings):
     google_api_key: str = Field(..., alias="GOOGLE_API_KEY")
     ollama_base_url: str = Field(default="http://localhost:11434", alias="OLLAMA_BASE_URL")
+    enable_sandbox_mode: bool = Field(default=False, alias="SENTINEL_ENABLE_SANDBOX")
     
     # LangSmith (Observabilidade)
     langchain_tracing_v2: bool = Field(default=False, alias="LANGCHAIN_TRACING_V2")
@@ -52,8 +53,6 @@ class Settings(BaseSettings):
             yaml_data = yaml.safe_load(f)
             
         return DisputeMatrixConfig(**yaml_data)
-
-enable_sandbox_mode: bool = os.getenv("SENTINEL_ENABLE_SANDBOX", "false").lower() == "true"
 
 # Instanciação global validada
 settings = Settings()

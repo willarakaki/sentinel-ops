@@ -17,11 +17,11 @@ from sentinel.agents.security_shield import security_shield_node
 from sentinel.core.cache import semantic_cache
 from sentinel.core.privacy import mask_pii
 from sentinel.core.cache_signature import build_trust_signature, signature_to_text
-from sentinel.core.sandbox import apply_sandbox_override
+from sentinel.core.prompt_guard import _load_prompt_guard
 
 os.makedirs("data", exist_ok=True)
-
-
+print("⚙️ Pré-carregando Prompt Guard 2...")
+_load_prompt_guard()
 # ==========================================
 # 0. RESET DE ESTADO ENTRE DISPUTAS NO MESMO THREAD
 # ==========================================
@@ -91,6 +91,13 @@ def hydrate_and_check_cache_node(state: DisputeState) -> dict:
     if not state.get("messages"):
         return {}
 
+    # O recibo sandbox altera as evidências do pedido em memória. Portanto,
+    # decisões produzidas para telemetria real nunca podem ser reutilizadas.
+    sandbox_receipt = state.get("sandbox_receipt_json", "")
+    if sandbox_receipt:
+        print("  🧪 [Semantic Cache] Sandbox ativo. Ignorando leitura do cache.")
+        return {}
+
     try:
         telemetry = get_delivery_telemetry.invoke({"ticket_id": ticket_id})
         profile = get_customer_profile(customer_id)
@@ -101,9 +108,6 @@ def hydrate_and_check_cache_node(state: DisputeState) -> dict:
     if not profile or not profile_allows_semantic_cache(profile):
         print("  🛡️ [Semantic Cache] Perfil comportamental inelegível. Enviando ao Investigator.")
         return {}
-
-    sandbox_receipt = state.get("sandbox_receipt_json", "")
-    telemetry = apply_sandbox_override(telemetry, sandbox_receipt, ticket_id)
 
     trust_signature = build_trust_signature(profile)
     trust_text = signature_to_text(trust_signature)
@@ -166,6 +170,7 @@ def route_after_triage(state: DisputeState) -> str:
     ticket_id = state.get("ticket_id")
     amount = state.get("dispute_amount", 0.0)
     llm_risk = state.get("risk_level", "elevado").lower()
+    sandbox_receipt = state.get("sandbox_receipt_json", "")
 
     db_path = os.path.join(os.getcwd(), "data", "sentinel.duckdb")
     db_risk = "high"
@@ -188,8 +193,6 @@ def route_after_triage(state: DisputeState) -> str:
 
     # 1.1 ZERO TRUST MATEMÁTICO (Cálculo do Valor Real)
     db_order_total = 0.0
-    sandbox_receipt = state.get("sandbox_receipt_json", "")
-
     try:
         json_to_parse = sandbox_receipt if sandbox_receipt else order_items_str
         if json_to_parse:
@@ -222,6 +225,18 @@ def route_after_triage(state: DisputeState) -> str:
             return "human_review"
 
         print(" >> 🛡️ PERFIL HIGH: enviando ao Investigator para decisão baseada em evidências.")
+        return "investigator"
+
+    # Alegações de item faltante exigem comparar o item reclamado com o recibo.
+    # O teto financeiro, sozinho, não prova que o item existe no pedido.
+    if intent == "item_faltante":
+        print(" >> 🔎 ITEM FALTANTE: exigindo conferência do item no Investigator.")
+        return "investigator"
+
+    # O sandbox altera as evidências do pedido e nunca deve usar o atalho
+    # financeiro automático baseado apenas no valor total.
+    if sandbox_receipt:
+        print(" >> 🧪 SANDBOX: exigindo análise do recibo de teste no Investigator.")
         return "investigator"
 
     # 5. REGRA FINOPS (Auto-Refund) COM ZERO TRUST

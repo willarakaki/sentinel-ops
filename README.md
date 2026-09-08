@@ -31,7 +31,7 @@ graph TD
         G <-->|Consulta FAISS| H[(Semantic Cache)]
         G <-->|Agent Tools| I[(DuckDB: Telemetria + JSON Receipts)]
         G <-->|Mascara PII| J[Microsoft Presidio NLP]
-        G -->|API Cloud| K[Google Gemini 1.5]
+        G -->|API Cloud| K[Google Gemini 3.6 Flash]
     end
 
     K -->|HTTP 429 / Timeout| L(🔄 Circuit Breaker: Fallback Qwen 2.5)
