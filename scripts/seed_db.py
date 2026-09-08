@@ -83,6 +83,7 @@ def seed_database():
         ('CUST-HBR', 120, 15, 600.00, 'B2C', 1, 0, 'MEDIUM'),
         ('CUST-FRAUD', 1, 0, 0.00, 'B2C', 0, 0, 'HIGH'),
         ('CUST-VIP', 1800, 450, 18500.00, 'B2C', 2, 0, 'LOW'),
+        ('CUST-VIP-TEST', 1500, 300, 12000.00, 'B2C', 1, 0, 'LOW'),
         ('CUST-NEW', 15, 10, 850.00, 'B2C', 0, 0, 'LOW'),
         ('CUST-CHURN', 730, 180, 7200.00, 'B2C', 4, 1, 'MEDIUM'),
         ('CUST-ABUSER', 240, 80, 2400.00, 'B2C', 32, 6, 'HIGH'),

@@ -1,4 +1,5 @@
 import re
+from types import SimpleNamespace
 from deepeval.models.base_model import DeepEvalBaseLLM
 from sentinel.core.llm_factory import LLMFactory
 
@@ -43,10 +44,26 @@ class GeminiJudge(DeepEvalBaseLLM):
     def generate(self, prompt: str) -> str:
             res = self.model.invoke(prompt)
             return self._extract_text(res.content)
+
+    def generate_raw_response(self, prompt: str, **kwargs):
+        """Implementa o contrato raw usado pelo GEval para respostas JSON."""
+        content = self.generate(prompt)
+        response = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content=content))]
+        )
+        return response, None
     
     async def a_generate(self, prompt: str) -> str:
         res = await self.model.ainvoke(prompt)
         return self._extract_text(res.content)
+
+    async def a_generate_raw_response(self, prompt: str, **kwargs):
+        """Versão assíncrona do contrato raw usado pelo GEval."""
+        content = await self.a_generate(prompt)
+        response = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content=content))]
+        )
+        return response, None
     
     def get_model_name(self):
         return "SentinelOps-Central-Evaluator"

@@ -1,5 +1,6 @@
 import os
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_groq import ChatGroq
 from langchain_ollama import ChatOllama
 from langchain_ollama import OllamaEmbeddings
 from config.settings import settings
@@ -41,6 +42,20 @@ class LLMFactory:
             num_predict=512,
             format="json" # Qwen 2.5 respeita nativamente a saída estruturada
         )
+
+    @staticmethod
+    def get_fallback_model(temperature: float = 0.0) -> ChatGroq:
+        """Retorna o modelo Groq usado como fallback do investigador."""
+        if not settings.groq_api_key:
+            raise RuntimeError("GROQ_API_KEY não configurada para o fallback do investigador.")
+
+        return ChatGroq(
+            model=settings.groq_model,
+            api_key=settings.groq_api_key,
+            temperature=temperature,
+            max_tokens=2048,
+            max_retries=2,
+        )
         
     @staticmethod
     def get_security_model(temperature: float = 0.0):
@@ -74,4 +89,11 @@ class LLMFactory:
         """
         print("  ⚙️ [Factory] Instanciando Modelo Juiz (Gemini 3 Flash Preview)...")
         # Substitua por "gemini-1.5-flash" se o 2.0 ainda não estiver disponível na sua key
-        return ChatGoogleGenerativeAI(model="gemini-3-flash-preview", temperature=temperature)
+        return ChatGoogleGenerativeAI(
+            model="gemini-3-flash-preview",
+            temperature=temperature,
+            max_tokens=2048,
+            request_timeout=30.0,
+            retries=0,
+            response_mime_type="application/json",
+        )

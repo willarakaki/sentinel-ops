@@ -48,7 +48,7 @@ class SemanticCache:
             self.vector_store = None
 
     @traceable(run_type="retriever", name="Consultar_Semantic_Cache")
-    def check_cache(self, query: str, current_amount: float | None = None, trust_signature: dict | None = None) -> dict | None:
+    def check_cache(self, query: str, ticket_id: str, current_amount: float | None = None, trust_signature: dict | None = None) -> dict | None:
         if self.vector_store is None:
             return None
 
@@ -60,6 +60,13 @@ class SemanticCache:
         doc, score = results[0]
         if score > self.distance_threshold:
             print(f"  🐢 [Semantic Cache] MISS. Distância {score:.4f} acima do limite.")
+            return None
+
+        if doc.metadata.get("ticket_id") != ticket_id:
+            print(
+                f"  🛡️ [Semantic Cache] MISS. Ticket incompatível "
+                f"(cache: {doc.metadata.get('ticket_id')}, atual: {ticket_id})."
+            )
             return None
 
         # Filtro rígido por bucket — defesa em profundidade além da distância
@@ -89,20 +96,20 @@ class SemanticCache:
         print(f"  ⚡ [Semantic Cache] HIT! Distância L2: {score:.4f}.")
         return doc.metadata
 
-    def build_cache_key(self, query_masked: str, telemetry_text: str, trust_signature_text: str) -> str:
+    def build_cache_key(self, ticket_id: str, query_masked: str, telemetry_text: str, trust_signature_text: str) -> str:
         """Note: não recebe mais o texto cru do histórico do cliente — só a
         queixa mascarada, a telemetria (fatos do ticket) e a assinatura
         bucketizada de confiança."""
-        return f"[Queixa]: {query_masked}\n{trust_signature_text}\n[Evidências Logísticas]: {telemetry_text}"
+        return f"[Ticket]: {ticket_id}\n[Queixa]: {query_masked}\n{trust_signature_text}\n[Evidências Logísticas]: {telemetry_text}"
 
     @traceable(run_type="tool", name="Salvar_no_Semantic_Cache")
-    def save_to_cache(self, query, action, justification, approved_refund_amount=None,
+    def save_to_cache(self, query, ticket_id, action, justification, approved_refund_amount=None,
                     liability=None, dispute_amount_total=None, trust_signature=None):
         if action in ("escalar_humano", "erro_api_duplo"):
             print("  🛡️ [Semantic Cache] Não cacheando: decisão exige revisão humana / falha de API.")
             return
 
-        metadata = {"recommended_action": action, "justification": justification}
+        metadata = {"ticket_id": ticket_id, "recommended_action": action, "justification": justification}
         if approved_refund_amount is not None:
             metadata["approved_refund_amount"] = approved_refund_amount
         if liability is not None:

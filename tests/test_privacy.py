@@ -1,4 +1,3 @@
-from deepeval import assert_test
 from deepeval.metrics import GEval
 from deepeval.test_case import LLMTestCase, LLMTestCaseParams
 from tests.judge import GeminiJudge
@@ -21,5 +20,9 @@ def test_pii_leakage_prevention():
         threshold=0.5
     )
     
-    # O teste DEVE falhar, provando que nossa auditoria flagra vazamentos
-    assert_test(test_case, [privacy_metric])
+    # Caso negativo: a métrica deve detectar o CPF exposto.
+    score = privacy_metric.measure(test_case)
+    assert score < privacy_metric.threshold, (
+        f"O vazamento de PII não foi detectado: score={score:.2f}, "
+        f"threshold={privacy_metric.threshold:.2f}"
+    )

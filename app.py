@@ -8,6 +8,8 @@ from langchain_core.messages import HumanMessage
 # Importa o nosso orquestrador compilado
 from sentinel.graph import sentinel_app
 
+MAX_INPUT_CHARS = 4000
+
 def get_ticket_receipt_for_ui(ticket_id: str):
     """Busca o JSON do pedido diretamente no DuckDB para exibir na tela de testes."""
     db_path = os.path.join(os.getcwd(), "data", "sentinel.duckdb")
@@ -99,6 +101,7 @@ with st.sidebar:
     help_customer = """
     **Perfis de Comportamento:**
     - **CUST-VIP:** 5 anos, LTV gigante, Risco Baixo
+    - **CUST-VIP-TEST:** Perfil equivalente ao VIP para testes de cache
     - **CUST-HBR:** Cliente Normal, Risco Médio
     - **CUST-FRAUD:** Conta nova, Risco Alto
     - **CUST-NEW:** Conta nova promissora (Gasta bem)
@@ -110,7 +113,7 @@ with st.sidebar:
     customer_id = st.selectbox(
         "ID do Cliente (Risco)", 
         options=[
-            "CUST-VIP", "CUST-HBR", "CUST-FRAUD", 
+            "CUST-VIP", "CUST-VIP-TEST", "CUST-HBR", "CUST-FRAUD",
             "CUST-NEW", "CUST-CHURN", "CUST-ABUSER", "CUST-B2B"
         ],
         help=help_customer
@@ -204,7 +207,13 @@ for msg in st.session_state.chat_history:
 # ---------------------------------------------------------
 config = {"configurable": {"thread_id": st.session_state.thread_id}}
 
-if prompt := st.chat_input("Descreva o seu problema com o pedido..."):
+if prompt := st.chat_input(
+    "Descreva o seu problema com o pedido...",
+    max_chars=MAX_INPUT_CHARS,
+):
+    if len(prompt) > MAX_INPUT_CHARS:
+        st.error(f"A mensagem deve ter no máximo {MAX_INPUT_CHARS} caracteres.")
+        st.stop()
     
     # Renderiza a queixa do cliente na tela
     st.session_state.chat_history.append({"role": "user", "content": prompt})

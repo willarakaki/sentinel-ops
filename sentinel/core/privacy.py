@@ -34,6 +34,27 @@ cpf_recognizer = PatternRecognizer(
 )
 analyzer.registry.add_recognizer(cpf_recognizer)
 
+# Identifica dados bancários somente quando há um rótulo explícito. Isso evita
+# tratar número de pedido, valor ou outros identificadores como conta bancária.
+banking_patterns = [
+    Pattern(
+        name="br_bank_agency_pattern",
+        regex=r"(?i)\b(?:ag[êe]ncia|ag\.?)[\s:№-]*\d{1,6}\b",
+        score=0.95,
+    ),
+    Pattern(
+        name="br_bank_account_pattern",
+        regex=r"(?i)\b(?:conta|c/c|cc)[\s:№-]*\d{1,12}(?:-\d{1,2})?\b",
+        score=0.95,
+    ),
+]
+banking_recognizer = PatternRecognizer(
+    supported_entity="BR_BANK_ACCOUNT",
+    patterns=banking_patterns,
+    supported_language="pt",
+)
+analyzer.registry.add_recognizer(banking_recognizer)
+
 # Função de Mascaramento Central
 def mask_pii(text: str) -> str:
     """
@@ -46,7 +67,10 @@ def mask_pii(text: str) -> str:
     # Analisa o texto em português
     results = analyzer.analyze(
         text=text,
-        entities=["PERSON", "EMAIL_ADDRESS", "PHONE_NUMBER", "CREDIT_CARD", "BR_CPF"],
+        entities=[
+            "PERSON", "EMAIL_ADDRESS", "PHONE_NUMBER", "CREDIT_CARD", "BR_CPF",
+            "BR_BANK_ACCOUNT",
+        ],
         language="pt"
     )
     
