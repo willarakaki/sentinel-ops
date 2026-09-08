@@ -66,12 +66,12 @@ services:
       - "8501:8501"
     volumes:
       - ./data:/app/data
+      - hf_cache:/root/.cache/huggingface 
     env_file:
       - .env
     environment:
       - OLLAMA_BASE_URL=http://ollama:11434
     depends_on:
-      # O app SÓ sobe quando o provisionador (Fase 2) terminar com sucesso
       ollama-init:
         condition: service_completed_successfully
     restart: unless-stopped
@@ -79,3 +79,5 @@ services:
 volumes:
   ollama_data:
     name: sentinel_ollama_data
+  hf_cache:
+    name: sentinel_hf_cache
