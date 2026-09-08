@@ -1,7 +1,6 @@
 from deepeval.metrics import GEval
 from deepeval.test_case import LLMTestCase, LLMTestCaseParams
 from dotenv import load_dotenv
-
 from tests.judge import GeminiJudge
 
 load_dotenv()
