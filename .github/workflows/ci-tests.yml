@@ -79,4 +79,8 @@ jobs:
       - name: Run Pytest (L0 WAF & Egress Validation)
         env:
           PYTHONPATH: .
+          # Injetamos Dummy Keys para satisfazer a validação estrita do Pydantic.
+          # Isso garante que nossos testes unitários rodem em isolamento sem risco financeiro.
+          GOOGLE_API_KEY: "mock-key-gemini-ci-apenas"
+          GROQ_API_KEY: "mock-key-groq-ci-apenas"
         run: pytest tests/ -v
