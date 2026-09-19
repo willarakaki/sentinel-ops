@@ -22,6 +22,11 @@ class DisputeState(TypedDict):
     risk_level: str | None
     intent: str | None
     
+    # 4. Contexto de Roteamento (Preenchidos antes do Roteador)
+    db_risk: str | None
+    is_age_restricted: bool | None
+    db_order_total: float | None
+    
     # 4. Contexto de Investigação (Preenchidos via MCP / DuckDB)
     # Ex: Histórico de fraudes do cliente, status do GPS do entregador, etc.
     telemetry_data: dict[str, Any] | None

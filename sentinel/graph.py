@@ -164,19 +164,16 @@ def route_security(state: DisputeState) -> str:
     print(">> Tráfego seguro. Prosseguindo para Triagem de Negócios.")
     return "triage"
 
-def route_after_triage(state: DisputeState) -> str:
-    print("--- [ROTEADOR: Hidratação Profunda de Dados] ---")
-
+def hydrate_routing_data_node(state: DisputeState) -> dict:
+    """Extrai as consultas de banco de dados do roteador para mantê-lo síncrono e puro."""
+    print("--- [NÓ: HIDRATAÇÃO DE ROTEAMENTO] ---")
     intent = state.get("intent", "").lower()
-
+    
     if intent == "fora_de_escopo":
-        print(" >> 🛡️ GUARDRAIL: Assunto fora de escopo. Bloqueando chamada para nuvem.")
-        return "out_of_scope"
+        return {}
 
     customer_id = state.get("customer_id")
     ticket_id = state.get("ticket_id")
-    amount = state.get("dispute_amount", 0.0)
-    llm_risk = state.get("risk_level", "elevado").lower()
     sandbox_receipt = state.get("sandbox_receipt_json", "")
 
     db_path = os.path.join(os.getcwd(), "data", "sentinel.duckdb")
@@ -205,6 +202,30 @@ def route_after_triage(state: DisputeState) -> str:
             db_order_total = sum(float(i.get("price", 0.0)) for i in items)
     except (json.JSONDecodeError, TypeError, ValueError) as e:
         print(f" ⚠️ Erro ao parsear JSON no Roteador: {e}")
+
+    return {
+        "db_risk": db_risk,
+        "is_age_restricted": is_age_restricted,
+        "db_order_total": db_order_total
+    }
+
+def route_after_triage(state: DisputeState) -> str:
+    print("--- [ROTEADOR: Regras de Negócio] ---")
+
+    intent = state.get("intent", "").lower()
+
+    if intent == "fora_de_escopo":
+        print(" >> 🛡️ GUARDRAIL: Assunto fora de escopo. Bloqueando chamada para nuvem.")
+        return "out_of_scope"
+
+    amount = state.get("dispute_amount", 0.0)
+    llm_risk = state.get("risk_level", "elevado").lower()
+    sandbox_receipt = state.get("sandbox_receipt_json", "")
+
+    # Recupera os dados puramente do estado
+    db_risk = state.get("db_risk", "high")
+    is_age_restricted = state.get("is_age_restricted", False)
+    db_order_total = state.get("db_order_total", 0.0)
 
     print(f" >> Risco LLM: {llm_risk} | Risco DB: {db_risk} | Restrito: {is_age_restricted} | Teto Solicitado: R$ {amount} | Teto Real: R$ {db_order_total}")
 
@@ -260,6 +281,7 @@ def build_graph():
     workflow.add_node("reset_turn", reset_turn_node)
     workflow.add_node("security_shield", security_shield_node)
     workflow.add_node("triage", triage_node)
+    workflow.add_node("hydrate_routing_data", hydrate_routing_data_node)
     workflow.add_node("hydrate_and_check_cache", hydrate_and_check_cache_node)
     workflow.add_node("investigator", investigator_node)
     workflow.add_node("auto_refund", auto_refund_node)
@@ -273,7 +295,10 @@ def build_graph():
     workflow.add_edge("reset_turn", "security_shield")
 
     workflow.add_conditional_edges("security_shield", route_security, {"human_review": "human_review", "triage": "triage"})
-    workflow.add_conditional_edges("triage", route_after_triage, {
+    
+    workflow.add_edge("triage", "hydrate_routing_data")
+    
+    workflow.add_conditional_edges("hydrate_routing_data", route_after_triage, {
         "auto_refund": "auto_refund",
         "investigator": "hydrate_and_check_cache",
         "human_review": "human_review",
