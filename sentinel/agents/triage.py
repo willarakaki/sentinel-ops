@@ -1,5 +1,3 @@
-import json
-
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
@@ -85,7 +83,7 @@ def triage_node(state: DisputeState) -> dict:
             "risk_level": validated_triage.risk_level
         }
         
-    except Exception as e:
+    except (TypeError, ValueError, RuntimeError, OSError) as e:
         # Padrão Sênior de Resiliência: Fail-Safe para bloqueio humano
         print(f"[ERRO NA TRIAGEM SLM] {e}. Aplicando Fallback de Segurança (Risco Elevado).")
         return {
