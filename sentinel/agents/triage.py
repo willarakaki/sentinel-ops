@@ -72,16 +72,10 @@ def triage_node(state: DisputeState) -> dict:
     ]
     
     # 4. Executa a inferência
-    response = None
     try:
-        response = slm.invoke(messages)
-        
-        # O Ollama no formato JSON retorna uma string parseável
-        raw_json = response.content
-        parsed_data = json.loads(raw_json)
-        
-        # Passamos pelo Pydantic para garantir que as chaves estão corretas
-        validated_triage = TriageOutput(**parsed_data)
+        # Usa o with_structured_output do LangChain para retornar a instância do Pydantic diretamente
+        structured_slm = slm.with_structured_output(TriageOutput)
+        validated_triage = structured_slm.invoke(messages)
         
         print(f"[TRIAGEM CONCLUÍDA] Intenção: {validated_triage.intent} | Risco: {validated_triage.risk_level}")
         
@@ -91,11 +85,9 @@ def triage_node(state: DisputeState) -> dict:
             "risk_level": validated_triage.risk_level
         }
         
-    except (json.JSONDecodeError, TypeError, ValueError, RuntimeError, OSError) as e:
+    except Exception as e:
         # Padrão Sênior de Resiliência: Fail-Safe para bloqueio humano
         print(f"[ERRO NA TRIAGEM SLM] {e}. Aplicando Fallback de Segurança (Risco Elevado).")
-        raw_response = getattr(response, "content", None)
-        print(f"[DEBUG LOG] Resposta bruta do modelo que causou o erro: {raw_response!r}")
         return {
             "intent": "classificacao_falhou",
             "risk_level": "elevado"
